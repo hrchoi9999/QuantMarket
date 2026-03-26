@@ -1,0 +1,31 @@
+# Secrets and local env
+.env
+.env.*
+*.env
+*.secret
+*.secrets
+
+# Local credential files
+config/*.json
+config/*.key
+config/*.pem
+data/gcp/
+data/secrets/
+
+# Runtime artifacts
+reports/market_analysis/logs/
+reports/market_analysis/remote_publish_*.json
+reports/market_analysis/market_ai_generation_status_latest.json
+
+# Python
+__pycache__/
+*.pyc
+
+# QuantMarket generated outputs
+_tmp/
+data/db/
+service_platform/web/public_data/current/
+service_platform/web/public_data/admin_market/current/
+service_platform/web/public_data/handoff/quantservice/current/
+service_platform/web/public_data/handoff/quantservice/admin_market/current/
+reports/market_analysis/logs/

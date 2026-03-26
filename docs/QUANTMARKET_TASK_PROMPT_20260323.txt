@@ -1,0 +1,37 @@
+QuantMarket 작업지시 요약 (2026-03-23)
+
+작업 위치:
+- `D:\QuantMarket`
+
+중요 안정성 원칙:
+1. `D:\Quant`는 참조 전용
+2. `D:\Quant`는 절대 수정 금지
+3. 모든 구현/실험/산출물은 `D:\QuantMarket` 안에서만 수행
+
+읽기 전용 참고 문서:
+- `D:\Quant\docs\MARKET_ANALYSIS_OFFICIAL_DATA_AND_AI_DESIGN_P0_20260323.md`
+- `D:\Quant\docs\TASK_13_MARKET_ANALYSIS_PIPELINE_P0_20260323.md`
+- `D:\Quant\docs\MARKET_ANALYSIS_DATA_MODEL_20260323.md`
+- `D:\Quant\docs\MARKET_ANALYSIS_WEB_PAYLOAD_SPEC_20260323.md`
+
+이번 작업 목표:
+- 공식 시장데이터 기반 시장분석 파이프라인 P0 설계/구현
+- 7단계 시장상태 산출
+- 웹서비스용 시장분석 payload 생성
+- 기존 포트폴리오 모델 개발과 분리된 별도 오케스트레이션 구성
+- 향후 미국시장 확장 가능 구조 확보
+
+핵심 원칙:
+- 메인 축은 공식 시장지표
+- 내부 breadth는 보조지표
+- 정성 해설은 데이터 기반
+- AI는 설명 생성기
+- KR / US 다중시장 확장 가능 구조
+- `D:\Quant` 수정 금지
+
+우선 구현 항목:
+1. `market_analysis.db` 설계
+2. `market_index_daily / market_fx_daily / market_rates_daily` 생성 구조
+3. `market_features_hourly / market_component_scores / market_state_history` 설계
+4. `run_market_analysis_pipeline.py` 설계
+5. `market_analysis_summary/detail` payload 설계

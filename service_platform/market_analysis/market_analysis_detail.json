@@ -1,0 +1,59 @@
+{
+  "market": "KR",
+  "asof": "2026-03-23T15:00:00+09:00",
+  "state": {
+    "label": "상승",
+    "score": 1.3279,
+    "prev_label": "상승",
+    "change_direction": "unchanged"
+  },
+  "components": {
+    "trend": {
+      "score": 1.0009,
+      "label": "시장 방향",
+      "summary": "코스피와 코스피200이 우상향 흐름을 유지하고 있습니다."
+    },
+    "breadth": {
+      "score": 3.0,
+      "label": "시장 건강도",
+      "summary": "상승 흐름이 시장 내부로 비교적 고르게 확산되고 있습니다."
+    },
+    "risk": {
+      "score": -0.1452,
+      "label": "시장 흔들림",
+      "summary": "변동성은 관리 가능한 수준이지만 경계는 필요합니다."
+    },
+    "defensive_flow": {
+      "score": 0.711,
+      "label": "방어자산 선호도",
+      "summary": "방어자산 쏠림이 강하지 않아 주식 선호가 상대적으로 유지됩니다."
+    }
+  },
+  "metrics": {
+    "kospi_1d_ret": 0.0036625195869282035,
+    "kospi_20d_ret": 0.05408942202835343,
+    "kosdaq_20d_ret": 0.041988267983945615,
+    "above_20dma_ratio": 1.0,
+    "above_60dma_ratio": 1.0,
+    "adv_dec_ratio": 4.0,
+    "realized_vol_20d": 0.002639634293479263,
+    "usdkrw_20d_ret": -0.02352422259795628,
+    "rate_cd91_20d_chg": 0.08000000000000007,
+    "rate_ktb3y_20d_chg": 0.06990000000000007,
+    "proxy_flags": {
+      "breadth": true,
+      "defensive_flow": true
+    }
+  },
+  "positive_points": [
+    "시장 확산도 양호",
+    "코스피 1개월 상승 흐름",
+    "코스닥 추세 회복"
+  ],
+  "warning_points": [],
+  "action_guide": "추세 추종은 가능하지만 분할 접근 원칙은 유지하는 편이 좋습니다.",
+  "ai_note": {
+    "enabled": false,
+    "summary": null
+  }
+}

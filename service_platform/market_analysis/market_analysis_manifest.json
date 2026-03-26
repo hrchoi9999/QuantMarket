@@ -1,0 +1,11 @@
+{
+  "market": "KR",
+  "asof": "2026-03-23T15:00:00+09:00",
+  "db_path": "D:\\QuantMarket\\data\\db\\market_analysis.db",
+  "artifacts": [
+    "market_analysis_summary.json",
+    "market_analysis_detail.json",
+    "market_analysis_today_bridge.json"
+  ],
+  "version": "p0"
+}

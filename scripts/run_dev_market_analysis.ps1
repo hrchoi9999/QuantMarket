@@ -1,0 +1,57 @@
+param(
+    [switch]$SeedSample,
+    [switch]$SyncToQuantService,
+    [switch]$PublishRemote,
+    [switch]$RemoteDryRun,
+    [string]$PythonExe = "D:\Quant\venv64\Scripts\python.exe",
+    [string]$Market = "KR",
+    [string]$QuantServiceTargetDir = "D:\QuantService\service_platform\web\public_data\market_analysis\current",
+    [string]$RemoteProvider = "gcs",
+    [string]$RemoteGcsBucket = "",
+    [string]$RemoteBaseUrl = "",
+    [string]$RemotePrefix = "market_analysis",
+    [string]$RemoteAccessMode = "public",
+    [string]$RemoteCredentials = ""
+)
+
+$ErrorActionPreference = "Stop"
+$root = "D:\QuantMarket"
+$logDir = Join-Path $root "reports\market_analysis\logs"
+New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+
+$timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+$logPath = Join-Path $logDir "market_analysis_run_$timestamp.log"
+$asof = (Get-Date).ToString("yyyy-MM-ddTHH:00:00zzz")
+$scriptPath = Join-Path $root "run_market_analysis_pipeline.py"
+$syncScript = Join-Path $root "scripts\sync_market_analysis_to_quantservice.ps1"
+
+$args = @($scriptPath, "--market", $Market, "--asof", $asof)
+if ($SeedSample) {
+    $args += "--seed-sample"
+}
+if ($PublishRemote) {
+    $args += "--publish-remote"
+    if ($RemoteProvider) { $args += @("--remote-provider", $RemoteProvider) }
+    if ($RemoteGcsBucket) { $args += @("--remote-gcs-bucket", $RemoteGcsBucket) }
+    if ($RemoteBaseUrl) { $args += @("--remote-base-url", $RemoteBaseUrl) }
+    if ($RemotePrefix) { $args += @("--remote-prefix", $RemotePrefix) }
+    if ($RemoteAccessMode) { $args += @("--remote-access-mode", $RemoteAccessMode) }
+    if ($RemoteCredentials) { $args += @("--remote-credentials", $RemoteCredentials) }
+    if ($RemoteDryRun) { $args += "--remote-dry-run" }
+}
+
+"[$(Get-Date -Format s)] Starting QuantMarket full hourly pipeline asof=$asof market=$Market seed_sample=$SeedSample sync_to_quantservice=$SyncToQuantService publish_remote=$PublishRemote python=$PythonExe" | Tee-Object -FilePath $logPath
+& $PythonExe @args 2>&1 | Tee-Object -FilePath $logPath -Append
+if ($LASTEXITCODE -ne 0) {
+    throw "QuantMarket pipeline failed with exit code $LASTEXITCODE"
+}
+
+if ($SyncToQuantService) {
+    "[$(Get-Date -Format s)] Syncing QuantService handoff to $QuantServiceTargetDir" | Tee-Object -FilePath $logPath -Append
+    powershell -ExecutionPolicy Bypass -File $syncScript -TargetDir $QuantServiceTargetDir 2>&1 | Tee-Object -FilePath $logPath -Append
+    if ($LASTEXITCODE -ne 0) {
+        throw "QuantService sync failed with exit code $LASTEXITCODE"
+    }
+}
+
+"[$(Get-Date -Format s)] Completed QuantMarket full hourly pipeline" | Tee-Object -FilePath $logPath -Append

@@ -1,0 +1,5 @@
+date,rate_code,rate_name,value,source
+2026-03-23,BASE,Base Rate,2.75,manual_seed
+2026-03-23,CD91,CD 91D,3.12,manual_seed
+2026-03-23,KTB3Y,KTB 3Y,2.65,manual_seed
+2026-03-23,KTB5Y,KTB 5Y,2.74,manual_seed

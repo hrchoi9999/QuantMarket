@@ -1,0 +1,2 @@
+"""QuantMarket market analysis package."""
+
