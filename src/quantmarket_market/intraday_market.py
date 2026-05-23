@@ -21,6 +21,7 @@ from .payloads import write_payload_file
 YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?interval=5m&range=1d"
 NAVER_MARKET_SUM_URL = "https://finance.naver.com/sise/sise_market_sum.naver?sosok={sosok}&page={page}"
 NAVER_FUTURES_URL = "https://finance.naver.com/sise/sise_index.naver?code=FUT"
+NAVER_FUTURES_POLLING_URL = "https://polling.finance.naver.com/api/realtime?query=SERVICE_INDEX:FUT"
 NAVER_PROGRAM_TREND_URL = "https://finance.naver.com/sise/programDealTrendTime.naver?bizdate={bizdate}&sosok="
 NAVER_INVESTOR_TREND_URL = "https://finance.naver.com/sise/investorDealTrendTime.naver?bizdate={bizdate}&sosok="
 REQUEST_HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -410,6 +411,44 @@ def _signal_strength_label(value: float | None) -> str:
 
 
 def _collect_intraday_futures_rows_naver(*, market: str, asof: str, updated_at: str) -> tuple[list[dict], bool, str]:
+    try:
+        response = requests.get(NAVER_FUTURES_POLLING_URL, timeout=20, headers=REQUEST_HEADERS)
+        response.raise_for_status()
+        payload = response.json()
+        datas = ((((payload.get("result") or {}).get("areas") or [{}])[0]).get("datas") or [])
+        if datas:
+            data = datas[0]
+            price = float(data["nv"]) / 100.0 if data.get("nv") is not None else None
+            change_value = float(data["cv"]) / 100.0 if data.get("cv") is not None else None
+            change_pct = float(data["cr"]) / 100.0 if data.get("cr") is not None else None
+            open_value = float(data["ov"]) / 100.0 if data.get("ov") is not None else None
+            high_value = float(data["hv"]) / 100.0 if data.get("hv") is not None else None
+            low_value = float(data["lv"]) / 100.0 if data.get("lv") is not None else None
+            volume = float(data["aq"]) if data.get("aq") is not None else None
+            value_million = float(data["aa"]) / 1_000_000.0 if data.get("aa") is not None else None
+            prev_close = price - change_value if price is not None and change_value is not None else None
+            row = {
+                "market": market,
+                "asof": asof,
+                "session_date": asof[:10],
+                "contract_code": "FUT",
+                "contract_name": "코스피200 선물",
+                "price": price,
+                "change_value": change_value,
+                "change_pct": change_pct,
+                "open": open_value,
+                "high": high_value,
+                "low": low_value,
+                "prev_close": prev_close,
+                "volume": volume,
+                "value_million": value_million,
+                "source": "naver:polling:SERVICE_INDEX:FUT",
+                "is_fallback": 0,
+                "created_at": updated_at,
+            }
+            return [row], False, "naver:polling:SERVICE_INDEX:FUT"
+    except Exception:
+        pass
     try:
         html = _fetch_html(NAVER_FUTURES_URL)
         soup = BeautifulSoup(html, "html.parser")

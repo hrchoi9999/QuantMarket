@@ -50,6 +50,52 @@ CREATE TABLE IF NOT EXISTS market_rates_daily (
 CREATE INDEX IF NOT EXISTS idx_market_rates_daily_lookup
     ON market_rates_daily (market, rate_code, date);
 
+CREATE TABLE IF NOT EXISTS market_investor_flow_daily (
+    market TEXT NOT NULL,
+    date TEXT NOT NULL,
+    market_scope TEXT NOT NULL,
+    investor TEXT NOT NULL,
+    net_buy_value REAL,
+    source TEXT NOT NULL,
+    source_status TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (market, date, market_scope, investor)
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_investor_flow_daily_lookup
+    ON market_investor_flow_daily (market, market_scope, date);
+
+CREATE TABLE IF NOT EXISTS kiwoom_stock_investor_flow_daily (
+    date TEXT NOT NULL,
+    ticker TEXT NOT NULL,
+    name TEXT,
+    market_scope TEXT,
+    investor TEXT NOT NULL,
+    net_volume REAL,
+    net_value REAL,
+    source TEXT NOT NULL,
+    collected_at TEXT NOT NULL,
+    PRIMARY KEY (date, ticker, investor)
+);
+
+CREATE INDEX IF NOT EXISTS idx_kiwoom_stock_investor_flow_daily_date_investor
+    ON kiwoom_stock_investor_flow_daily (date, investor);
+
+CREATE INDEX IF NOT EXISTS idx_kiwoom_stock_investor_flow_daily_ticker_date
+    ON kiwoom_stock_investor_flow_daily (ticker, date);
+
+CREATE TABLE IF NOT EXISTS market_source_collection_status (
+    source_name TEXT NOT NULL,
+    market TEXT NOT NULL,
+    asof_date TEXT NOT NULL,
+    status TEXT NOT NULL,
+    row_count INTEGER NOT NULL DEFAULT 0,
+    message TEXT,
+    detail_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (source_name, market, asof_date)
+);
+
 CREATE TABLE IF NOT EXISTS market_features_hourly (
     market TEXT NOT NULL,
     asof TEXT NOT NULL,
@@ -209,6 +255,119 @@ CREATE TABLE IF NOT EXISTS market_state_transition_stats (
 
 CREATE INDEX IF NOT EXISTS idx_market_state_transition_stats_asof
     ON market_state_transition_stats (market, asof);
+
+CREATE TABLE IF NOT EXISTS market_overnight_asset_snapshot (
+    market TEXT NOT NULL,
+    asof TEXT NOT NULL,
+    session_date TEXT NOT NULL,
+    asset_code TEXT NOT NULL,
+    asset_name TEXT NOT NULL,
+    asset_group TEXT NOT NULL,
+    price REAL,
+    change_value REAL,
+    change_pct REAL,
+    open REAL,
+    high REAL,
+    low REAL,
+    prev_close REAL,
+    source TEXT NOT NULL,
+    is_fallback INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (market, asof, asset_code)
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_overnight_asset_snapshot_asof
+    ON market_overnight_asset_snapshot (market, asof);
+
+CREATE TABLE IF NOT EXISTS market_overnight_news_context (
+    market TEXT NOT NULL,
+    asof TEXT NOT NULL,
+    session_date TEXT NOT NULL,
+    headline_count INTEGER NOT NULL DEFAULT 0,
+    risk_headline_count INTEGER NOT NULL DEFAULT 0,
+    caution_bias INTEGER NOT NULL DEFAULT 0,
+    context_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (market, asof)
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_overnight_news_context_asof
+    ON market_overnight_news_context (market, asof);
+
+CREATE TABLE IF NOT EXISTS market_next_day_preview_state (
+    market TEXT NOT NULL,
+    asof TEXT NOT NULL,
+    reference_session TEXT NOT NULL,
+    preview_label TEXT NOT NULL,
+    preview_score REAL NOT NULL,
+    overnight_futures_bias REAL NOT NULL,
+    global_risk_bias REAL NOT NULL,
+    overnight_fx_bias REAL NOT NULL,
+    headline_line TEXT NOT NULL,
+    summary_line TEXT NOT NULL,
+    supporting_points_json TEXT NOT NULL,
+    risk_points_json TEXT NOT NULL,
+    overnight_assets_json TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    material_change_flag INTEGER NOT NULL DEFAULT 1,
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (market, asof)
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_next_day_preview_state_asof
+    ON market_next_day_preview_state (market, asof);
+
+CREATE TABLE IF NOT EXISTS market_dart_disclosure_event (
+    market TEXT NOT NULL,
+    asof TEXT NOT NULL,
+    reference_date TEXT NOT NULL,
+    rcept_no TEXT NOT NULL,
+    corp_cls TEXT,
+    corp_code TEXT,
+    corp_name TEXT,
+    stock_code TEXT,
+    report_nm TEXT NOT NULL,
+    flr_nm TEXT,
+    rcept_dt TEXT NOT NULL,
+    rm TEXT,
+    category_key TEXT NOT NULL,
+    category_label TEXT NOT NULL,
+    risk_flag INTEGER NOT NULL DEFAULT 0,
+    severity_label TEXT NOT NULL,
+    source TEXT NOT NULL,
+    viewer_url TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (market, asof, rcept_no)
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_dart_disclosure_event_asof
+    ON market_dart_disclosure_event (market, asof);
+
+CREATE INDEX IF NOT EXISTS idx_market_dart_disclosure_event_reference_date
+    ON market_dart_disclosure_event (market, reference_date);
+
+CREATE TABLE IF NOT EXISTS market_dart_summary_state (
+    market TEXT NOT NULL,
+    asof TEXT NOT NULL,
+    reference_date TEXT,
+    enabled INTEGER NOT NULL DEFAULT 0,
+    status_label TEXT NOT NULL,
+    availability_reason TEXT,
+    filing_count_total INTEGER NOT NULL DEFAULT 0,
+    kospi_count INTEGER NOT NULL DEFAULT 0,
+    kosdaq_count INTEGER NOT NULL DEFAULT 0,
+    risk_event_count INTEGER NOT NULL DEFAULT 0,
+    filing_count_by_type_json TEXT NOT NULL,
+    highlights_json TEXT NOT NULL,
+    recent_filings_json TEXT NOT NULL,
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (market, asof)
+);
+
+CREATE INDEX IF NOT EXISTS idx_market_dart_summary_state_asof
+    ON market_dart_summary_state (market, asof);
 CREATE TABLE IF NOT EXISTS market_intraday_index_snapshot (
     market TEXT NOT NULL,
     asof TEXT NOT NULL,

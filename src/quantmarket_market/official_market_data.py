@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import FinanceDataReader as fdr
 import pandas as pd
 
+from .bok_ecos_collector import bok_key_available, collect_bok_ecos_market_data
 from .config import MANUAL_RATE_SEED_PATH
 from .db import upsert_many
 
@@ -145,11 +146,38 @@ def collect_official_market_data(con, *, market: str, asof_date: str, updated_at
         upsert_many(con, table="market_fx_daily", columns=["market", "series_code", "series_name", "date", "close", "source", "updated_at"], rows=fx_rows, conflict_columns=["market", "series_code", "date"])
         stats["fx_rows"] = len(fx_rows)
 
-    rate_rows = _load_manual_rate_seed(market=market, updated_at=updated_at)
-    rate_source = 'manual_seed' if rate_rows else None
-    if not rate_rows:
-        rate_rows = _carry_forward_latest_rates(con, market=market, asof_date=asof_date, updated_at=updated_at)
-        rate_source = 'carry_forward' if rate_rows else None
+    bok_stats = None
+    if bok_key_available():
+        try:
+            bok_start = min(
+                fx_start,
+                _date_range_start(con, table="market_rates_daily", key_column="rate_code", key_value="CD91", market=market, asof_date=asof_date),
+                _date_range_start(con, table="market_rates_daily", key_column="rate_code", key_value="KTB3Y", market=market, asof_date=asof_date),
+                _date_range_start(con, table="market_rates_daily", key_column="rate_code", key_value="KTB5Y", market=market, asof_date=asof_date),
+            )
+            bok_stats = collect_bok_ecos_market_data(
+                con,
+                market=market,
+                start_date=bok_start,
+                end_date=asof_date,
+                updated_at=updated_at,
+            )
+            if bok_stats.get("fx_rows", 0) > 0:
+                stats["fx_rows"] += int(bok_stats["fx_rows"])
+            if bok_stats.get("rate_rows", 0) > 0:
+                stats["rate_rows"] = int(bok_stats["rate_rows"])
+                stats["rate_source"] = "bok_ecos"
+        except Exception as exc:
+            stats["bok_ecos_error"] = str(exc)
+
+    rate_rows = []
+    rate_source = None
+    if stats.get("rate_source") != "bok_ecos":
+        rate_rows = _load_manual_rate_seed(market=market, updated_at=updated_at)
+        rate_source = 'manual_seed' if rate_rows else None
+        if not rate_rows:
+            rate_rows = _carry_forward_latest_rates(con, market=market, asof_date=asof_date, updated_at=updated_at)
+            rate_source = 'carry_forward' if rate_rows else None
     if rate_rows:
         upsert_many(con, table="market_rates_daily", columns=["market", "rate_code", "rate_name", "date", "value", "source", "updated_at"], rows=rate_rows, conflict_columns=["market", "rate_code", "date"])
         stats["rate_rows"] = len(rate_rows)

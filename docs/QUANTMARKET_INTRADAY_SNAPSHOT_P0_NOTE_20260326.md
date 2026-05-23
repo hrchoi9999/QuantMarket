@@ -103,7 +103,7 @@
 
 기본 스케줄:
 - 평일 09:05 시작
-- 15분 간격
+- 30분 간격
 - 6시간 30분 반복
 - task name: `QuantMarket-Dev-Intraday`
 

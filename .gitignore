@@ -9,6 +9,7 @@
 config/*.json
 config/*.key
 config/*.pem
+config/*.txt
 data/gcp/
 data/secrets/
 
@@ -16,6 +17,24 @@ data/secrets/
 reports/market_analysis/logs/
 reports/market_analysis/remote_publish_*.json
 reports/market_analysis/market_ai_generation_status_latest.json
+reports/market_context_mart/
+reports/global_context/
+reports/bok_ecos/
+reports/domestic_flow_derivatives/
+reports/kiwoom/
+reports/macro_event_calendar/
+reports/macro_surprise/
+reports/market_ai_training_daily_update/
+reports/market_environment_live/
+reports/market_forecast_ai_calibration/
+reports/market_forecast_ai_comparison/
+reports/market_forecast_ai_model_v1/
+reports/market_forecast_ai_model_v1_1/
+reports/market_forecast_monitoring/
+reports/market_forecast_validation/
+reports/market_model_input_mart/
+reports/market_model_readiness/
+models/
 
 # Python
 __pycache__/
@@ -25,7 +44,11 @@ __pycache__/
 _tmp/
 data/db/
 service_platform/web/public_data/current/
+service_platform/ai_training/
+service_platform/global_context/
+service_platform/quant_model_handoff/
 service_platform/web/public_data/admin_market/current/
 service_platform/web/public_data/handoff/quantservice/current/
 service_platform/web/public_data/handoff/quantservice/admin_market/current/
+service_platform/web/public_data/next_day_preview/snapshot/
 reports/market_analysis/logs/

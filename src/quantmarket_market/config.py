@@ -15,6 +15,7 @@ ADMIN_SNAPSHOT_DIR = ROOT_DIR / "service_platform" / "web" / "public_data" / "ad
 ADMIN_HANDOFF_DIR = (
     ROOT_DIR / "service_platform" / "web" / "public_data" / "handoff" / "quantservice" / "admin_market" / "current"
 )
+NEXT_DAY_PREVIEW_SNAPSHOT_ROOT = ROOT_DIR / "service_platform" / "web" / "public_data" / "next_day_preview" / "snapshot"
 REPORT_DIR = ROOT_DIR / "reports" / "market_analysis"
 DEFAULT_DB_PATH = DB_DIR / "market_analysis.db"
 MANUAL_RATE_SEED_PATH = REFERENCE_DIR / "kr_rates_manual_seed.csv"
@@ -61,6 +62,7 @@ def ensure_runtime_dirs() -> None:
         QUANTSERVICE_HANDOFF_DIR,
         ADMIN_SNAPSHOT_DIR,
         ADMIN_HANDOFF_DIR,
+        NEXT_DAY_PREVIEW_SNAPSHOT_ROOT,
         REPORT_DIR,
     ):
         path.mkdir(parents=True, exist_ok=True)

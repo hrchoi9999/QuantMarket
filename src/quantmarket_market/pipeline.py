@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from .admin_payloads import (
@@ -23,6 +24,7 @@ from .config import (
     ensure_runtime_dirs,
 )
 from .db import connect, init_db, upsert_payload
+from .dart_disclosures import collect_market_dart_summary
 from .history_store import (
     build_publish_events,
     store_ai_brief_history,
@@ -31,9 +33,36 @@ from .history_store import (
     store_publish_history,
     store_state_transition_stats,
 )
+from .history_payloads import (
+    build_market_asset_strength_history_payload,
+    build_market_breadth_detail_history_payload,
+    build_market_dart_summary_history_payload,
+    build_market_state_transition_history_payload,
+    build_market_timeline_history_payload,
+    build_market_us_macro_panel_history_payload,
+    build_next_day_preview_history_payload,
+)
 from .intraday_bridge import build_state_intraday_bridge, load_latest_intraday_context
+from .intraday_market import collect_intraday_market_snapshot
 from .official_market_data import collect_official_market_data
 from .market_context import fetch_market_context
+from .market_analysis_menu_payloads import (
+    build_market_analysis_tabs_payload,
+    build_market_data_guide_payload,
+    build_market_live_context_payload,
+)
+from .market_analysis_extension_payloads import (
+    build_market_breadth_detail_payload,
+    build_market_dart_summary_payload,
+    build_market_index_panel_payload,
+    build_market_us_macro_panel_payload,
+)
+from .market_environment_indicators import (
+    build_market_environment_indicators_manifest,
+    build_market_environment_indicators_payload,
+)
+from .market_state_composite import build_market_state_composite
+from .next_day_preview import build_next_day_preview_outputs
 from .payloads import (
     build_api_response,
     build_detail_payload,
@@ -55,6 +84,21 @@ from .public_briefing_payloads import (
 from .quant_readonly import load_quant_reference_inputs
 from .remote_publish import RemotePublishConfig, publish_remote_handoff
 from .sample_data import seed_sample_official_data
+
+
+def _is_intraday_context_stale(intraday_context: dict | None, *, asof: str, max_age_minutes: int = 45) -> bool:
+    if not intraday_context:
+        return True
+    state = intraday_context.get("state") or {}
+    intraday_asof = state.get("asof")
+    if not intraday_asof:
+        return True
+    try:
+        intraday_dt = datetime.fromisoformat(str(intraday_asof))
+        asof_dt = datetime.fromisoformat(str(asof))
+    except ValueError:
+        return True
+    return (asof_dt - intraday_dt).total_seconds() > max_age_minutes * 60
 
 
 def run_market_analysis_pipeline(
@@ -109,15 +153,51 @@ def run_market_analysis_pipeline(
             "representative_assets": quant_inputs.get("representative_assets") if quant_inputs else None,
         }
         intraday_context = load_latest_intraday_context(con, market=market, asof=asof)
+        asof_hour = int(asof[11:13]) if len(asof) >= 13 else now.hour
+        intraday_session_date = ((intraday_context or {}).get("state") or {}).get("session_date")
+        needs_intraday_refresh = (
+            market == "KR"
+            and 8 <= asof_hour <= 18
+            and (
+                intraday_session_date != asof[:10]
+                or _is_intraday_context_stale(intraday_context, asof=asof)
+            )
+        )
+        if needs_intraday_refresh:
+            try:
+                collect_intraday_market_snapshot(
+                    con,
+                    market=market,
+                    asof=asof,
+                    snapshot_dir=admin_snapshot_dir,
+                    handoff_dir=admin_handoff_dir,
+                )
+                intraday_context = load_latest_intraday_context(con, market=market, asof=asof)
+            except Exception:
+                intraday_context = load_latest_intraday_context(con, market=market, asof=asof)
         summary = build_summary_payload(features=features, scores=scores, state=state)
         detail = build_detail_payload(features=features, scores=scores, state=state, quant_context=quant_context)
         state_intraday_bridge = build_state_intraday_bridge(summary=summary, detail=detail, intraday_context=intraday_context)
         summary["state_intraday_bridge"] = state_intraday_bridge
         detail["state_intraday_bridge"] = state_intraday_bridge
+        market_state_composite = build_market_state_composite(
+            features=features,
+            scores=scores,
+            state_intraday_bridge=state_intraday_bridge,
+        )
+        summary["market_state_composite"] = market_state_composite
+        detail["market_state_composite"] = market_state_composite
         today_bridge = build_today_bridge_payload(features=features, scores=scores)
         today_bridge["state_intraday_bridge"] = state_intraday_bridge
+        today_bridge["market_state_composite"] = market_state_composite
         manifest = build_manifest(features=features, db_path=db_path)
         market_context = fetch_market_context(market=market, fetched_at=created_at)
+        collect_market_dart_summary(
+            con,
+            market=market,
+            asof=asof,
+            created_at=created_at,
+        )
         store_market_context_history(
             con,
             market=market,
@@ -169,6 +249,24 @@ def run_market_analysis_pipeline(
         public_timeline = build_public_market_timeline_payload(con, market=market, asof=asof)
         public_asset_strength = build_public_market_asset_strength_payload(con, market=market, asof=asof)
         public_state_transition = build_public_market_state_transition_payload(con, market=market, asof=asof)
+        public_timeline_history = build_market_timeline_history_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        public_asset_strength_history = build_market_asset_strength_history_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        public_state_transition_history = build_market_state_transition_history_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
         public_model_background = build_public_market_model_background_payload(
             market=market,
             asof=asof,
@@ -178,6 +276,93 @@ def run_market_analysis_pipeline(
             timeline=public_timeline,
             asset_strength=public_asset_strength,
             state_transition=public_state_transition,
+        )
+        next_day_preview_outputs = build_next_day_preview_outputs(
+            con,
+            market=market,
+            asof=asof,
+            summary=summary,
+            detail=detail,
+            snapshot_dir=snapshot_dir,
+            handoff_dir=handoff_dir,
+        )
+        next_day_preview_history = build_next_day_preview_history_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_dart_summary_history = build_market_dart_summary_history_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_breadth_detail_history = build_market_breadth_detail_history_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_us_macro_panel_history = build_market_us_macro_panel_history_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_analysis_tabs = build_market_analysis_tabs_payload(
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_live_context = build_market_live_context_payload(
+            market=market,
+            asof=asof,
+            summary=summary,
+            detail=detail,
+            today_bridge=today_bridge,
+            next_day_preview=next_day_preview_outputs["quantservice"],
+        )
+        market_data_guide = build_market_data_guide_payload(
+            market=market,
+            asof=asof,
+            detail=detail,
+        )
+        market_index_panel = build_market_index_panel_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_breadth_detail = build_market_breadth_detail_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_us_macro_panel = build_market_us_macro_panel_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_dart_summary = build_market_dart_summary_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_environment_indicators = build_market_environment_indicators_payload(
+            con,
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+        )
+        market_environment_indicators_manifest = build_market_environment_indicators_manifest(
+            market=market,
+            asof=asof,
+            generated_at=created_at,
+            payload=market_environment_indicators,
         )
         admin_timeline = build_admin_market_timeline_payload(con, market=market, asof=asof)
         admin_asset_strength = build_admin_asset_strength_payload(con, market=market, asof=asof)
@@ -247,11 +432,101 @@ def run_market_analysis_pipeline(
             asof=asof,
             payload=public_state_transition,
         )
+        api_timeline_history = build_api_response(
+            endpoint=f"/api/v1/market-analysis/timeline/history?market={market}",
+            market=market,
+            asof=asof,
+            payload=public_timeline_history,
+        )
+        api_asset_strength_history = build_api_response(
+            endpoint=f"/api/v1/market-analysis/asset-strength/history?market={market}",
+            market=market,
+            asof=asof,
+            payload=public_asset_strength_history,
+        )
+        api_state_transition_history = build_api_response(
+            endpoint=f"/api/v1/market-analysis/state-transition/history?market={market}",
+            market=market,
+            asof=asof,
+            payload=public_state_transition_history,
+        )
         api_model_background = build_api_response(
             endpoint=f"/api/v1/market-analysis/model-background?market={market}",
             market=market,
             asof=asof,
             payload=public_model_background,
+        )
+        api_next_day_preview_history = build_api_response(
+            endpoint=f"/api/v1/market-analysis/next-day-preview/history?market={market}",
+            market=market,
+            asof=asof,
+            payload=next_day_preview_history,
+        )
+        api_market_analysis_tabs = build_api_response(
+            endpoint=f"/api/v1/market-analysis/tabs?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_analysis_tabs,
+        )
+        api_market_live_context = build_api_response(
+            endpoint=f"/api/v1/market-analysis/live-context?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_live_context,
+        )
+        api_market_data_guide = build_api_response(
+            endpoint=f"/api/v1/market-analysis/data-guide?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_data_guide,
+        )
+        api_market_index_panel = build_api_response(
+            endpoint=f"/api/v1/market-analysis/index-panel?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_index_panel,
+        )
+        api_market_breadth_detail = build_api_response(
+            endpoint=f"/api/v1/market-analysis/breadth-detail?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_breadth_detail,
+        )
+        api_market_breadth_detail_history = build_api_response(
+            endpoint=f"/api/v1/market-analysis/breadth-detail/history?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_breadth_detail_history,
+        )
+        api_market_us_macro_panel = build_api_response(
+            endpoint=f"/api/v1/market-analysis/us-macro-panel?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_us_macro_panel,
+        )
+        api_market_us_macro_panel_history = build_api_response(
+            endpoint=f"/api/v1/market-analysis/us-macro-panel/history?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_us_macro_panel_history,
+        )
+        api_market_dart_summary = build_api_response(
+            endpoint=f"/api/v1/market-analysis/dart-summary?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_dart_summary,
+        )
+        api_market_dart_summary_history = build_api_response(
+            endpoint=f"/api/v1/market-analysis/dart-summary/history?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_dart_summary_history,
+        )
+        api_market_environment_indicators = build_api_response(
+            endpoint=f"/api/v1/market-environment-indicators?market={market}",
+            market=market,
+            asof=asof,
+            payload=market_environment_indicators,
         )
 
         for payload_type, payload in (
@@ -265,6 +540,9 @@ def run_market_analysis_pipeline(
             ("public_timeline", public_timeline),
             ("public_asset_strength", public_asset_strength),
             ("public_state_transition", public_state_transition),
+            ("public_timeline_history", public_timeline_history),
+            ("public_asset_strength_history", public_asset_strength_history),
+            ("public_state_transition_history", public_state_transition_history),
             ("public_model_background", public_model_background),
             ("api_home", api_home),
             ("api_page", api_page),
@@ -274,7 +552,39 @@ def run_market_analysis_pipeline(
             ("api_timeline", api_timeline),
             ("api_asset_strength", api_asset_strength),
             ("api_state_transition", api_state_transition),
+            ("api_timeline_history", api_timeline_history),
+            ("api_asset_strength_history", api_asset_strength_history),
+            ("api_state_transition_history", api_state_transition_history),
             ("api_model_background", api_model_background),
+            ("next_day_preview", next_day_preview_outputs["preview"]),
+            ("quantservice_next_day_preview", next_day_preview_outputs["quantservice"]),
+            ("api_next_day_preview", next_day_preview_outputs["api"]),
+            ("next_day_preview_history", next_day_preview_history),
+            ("api_next_day_preview_history", api_next_day_preview_history),
+            ("market_analysis_tabs", market_analysis_tabs),
+            ("market_live_context", market_live_context),
+            ("market_data_guide", market_data_guide),
+            ("market_index_panel", market_index_panel),
+            ("market_breadth_detail", market_breadth_detail),
+            ("market_breadth_detail_history", market_breadth_detail_history),
+            ("market_us_macro_panel", market_us_macro_panel),
+            ("market_us_macro_panel_history", market_us_macro_panel_history),
+            ("market_dart_summary", market_dart_summary),
+            ("market_dart_summary_history", market_dart_summary_history),
+            ("market_environment_indicators", market_environment_indicators),
+            ("market_environment_indicators_manifest", market_environment_indicators_manifest),
+            ("api_market_analysis_tabs", api_market_analysis_tabs),
+            ("api_market_live_context", api_market_live_context),
+            ("api_market_data_guide", api_market_data_guide),
+            ("api_market_index_panel", api_market_index_panel),
+            ("api_market_breadth_detail", api_market_breadth_detail),
+            ("api_market_breadth_detail_history", api_market_breadth_detail_history),
+            ("api_market_us_macro_panel", api_market_us_macro_panel),
+            ("api_market_us_macro_panel_history", api_market_us_macro_panel_history),
+            ("api_market_dart_summary", api_market_dart_summary),
+            ("api_market_dart_summary_history", api_market_dart_summary_history),
+            ("api_market_environment_indicators", api_market_environment_indicators),
+            ("next_day_preview_manifest", next_day_preview_outputs["manifest"]),
             ("admin_timeline", admin_timeline),
             ("admin_asset_strength", admin_asset_strength),
             ("admin_state_transition", admin_state_transition),
@@ -309,15 +619,75 @@ def run_market_analysis_pipeline(
         write_payload_file(handoff_dir / "quantservice_market_timeline.json", public_timeline)
         write_payload_file(handoff_dir / "quantservice_market_asset_strength.json", public_asset_strength)
         write_payload_file(handoff_dir / "quantservice_market_state_transition.json", public_state_transition)
+        write_payload_file(handoff_dir / "quantservice_market_timeline_history.json", public_timeline_history)
+        write_payload_file(handoff_dir / "quantservice_market_asset_strength_history.json", public_asset_strength_history)
+        write_payload_file(handoff_dir / "quantservice_market_state_transition_history.json", public_state_transition_history)
         write_payload_file(handoff_dir / "quantservice_market_model_background.json", public_model_background)
         write_payload_file(handoff_dir / "api_v1_market_analysis_timeline.json", api_timeline)
         write_payload_file(handoff_dir / "api_v1_market_analysis_asset_strength.json", api_asset_strength)
         write_payload_file(handoff_dir / "api_v1_market_analysis_state_transition.json", api_state_transition)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_timeline_history.json", api_timeline_history)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_asset_strength_history.json", api_asset_strength_history)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_state_transition_history.json", api_state_transition_history)
         write_payload_file(handoff_dir / "api_v1_market_analysis_model_background.json", api_model_background)
+        write_payload_file(handoff_dir / "quantservice_market_next_day_preview_history.json", next_day_preview_history)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_next_day_preview_history.json", api_next_day_preview_history)
+        write_payload_file(handoff_dir / "quantservice_market_dart_summary_history.json", market_dart_summary_history)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_dart_summary_history.json", api_market_dart_summary_history)
+        write_payload_file(handoff_dir / "quantservice_market_analysis_tabs.json", market_analysis_tabs)
+        write_payload_file(handoff_dir / "quantservice_market_live_context.json", market_live_context)
+        write_payload_file(handoff_dir / "quantservice_market_data_guide.json", market_data_guide)
+        write_payload_file(handoff_dir / "quantservice_market_index_panel.json", market_index_panel)
+        write_payload_file(handoff_dir / "quantservice_market_breadth_detail.json", market_breadth_detail)
+        write_payload_file(handoff_dir / "quantservice_market_breadth_detail_history.json", market_breadth_detail_history)
+        write_payload_file(handoff_dir / "quantservice_market_us_macro_panel.json", market_us_macro_panel)
+        write_payload_file(handoff_dir / "quantservice_market_us_macro_panel_history.json", market_us_macro_panel_history)
+        write_payload_file(handoff_dir / "quantservice_market_dart_summary.json", market_dart_summary)
+        write_payload_file(handoff_dir / "quantservice_market_environment_indicators.json", market_environment_indicators)
+        write_payload_file(
+            handoff_dir / "quantservice_market_environment_indicators_manifest.json",
+            market_environment_indicators_manifest,
+        )
+        write_payload_file(handoff_dir / "api_v1_market_analysis_tabs.json", api_market_analysis_tabs)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_live_context.json", api_market_live_context)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_data_guide.json", api_market_data_guide)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_index_panel.json", api_market_index_panel)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_breadth_detail.json", api_market_breadth_detail)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_breadth_detail_history.json", api_market_breadth_detail_history)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_us_macro_panel.json", api_market_us_macro_panel)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_us_macro_panel_history.json", api_market_us_macro_panel_history)
+        write_payload_file(handoff_dir / "api_v1_market_analysis_dart_summary.json", api_market_dart_summary)
+        write_payload_file(
+            handoff_dir / "api_v1_market_environment_indicators.json",
+            api_market_environment_indicators,
+        )
         write_payload_file(snapshot_dir / "market_briefing_timeline.json", public_timeline)
         write_payload_file(snapshot_dir / "market_briefing_asset_strength.json", public_asset_strength)
         write_payload_file(snapshot_dir / "market_briefing_state_transition.json", public_state_transition)
+        write_payload_file(snapshot_dir / "market_briefing_timeline_history.json", public_timeline_history)
+        write_payload_file(snapshot_dir / "market_briefing_asset_strength_history.json", public_asset_strength_history)
+        write_payload_file(snapshot_dir / "market_briefing_state_transition_history.json", public_state_transition_history)
         write_payload_file(snapshot_dir / "market_briefing_model_background.json", public_model_background)
+        write_payload_file(snapshot_dir / "market_next_day_preview_history.json", next_day_preview_history)
+        write_payload_file(snapshot_dir / "market_dart_summary_history.json", market_dart_summary_history)
+        write_payload_file(snapshot_dir / "market_analysis_tabs.json", market_analysis_tabs)
+        write_payload_file(snapshot_dir / "market_live_context.json", market_live_context)
+        write_payload_file(snapshot_dir / "market_data_guide.json", market_data_guide)
+        write_payload_file(snapshot_dir / "market_index_panel.json", market_index_panel)
+        write_payload_file(snapshot_dir / "market_breadth_detail.json", market_breadth_detail)
+        write_payload_file(snapshot_dir / "market_breadth_detail_history.json", market_breadth_detail_history)
+        write_payload_file(snapshot_dir / "market_us_macro_panel.json", market_us_macro_panel)
+        write_payload_file(snapshot_dir / "market_us_macro_panel_history.json", market_us_macro_panel_history)
+        write_payload_file(snapshot_dir / "market_dart_summary.json", market_dart_summary)
+        write_payload_file(snapshot_dir / "market_environment_indicators.json", market_environment_indicators)
+        write_payload_file(
+            snapshot_dir / "market_environment_indicators_manifest.json",
+            market_environment_indicators_manifest,
+        )
+        write_payload_file(
+            snapshot_dir / "api_v1_market_environment_indicators.json",
+            api_market_environment_indicators,
+        )
 
         write_payload_file(admin_snapshot_dir / "admin_market_timeline.json", admin_timeline)
         write_payload_file(admin_snapshot_dir / "admin_market_asset_strength.json", admin_asset_strength)

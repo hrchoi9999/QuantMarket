@@ -10,10 +10,6 @@ from .ai_briefs import build_ai_brief_prompt, load_ai_briefs, load_previous_ai_b
 from .config import REPORT_DIR
 from .payloads import write_payload_file
 
-OPENAI_MODEL = os.getenv("QUANTMARKET_OPENAI_MODEL", "gpt-4.1-mini").strip() or "gpt-4.1-mini"
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
-OPENAI_ENDPOINT = "https://api.openai.com/v1/responses"
-
 GEMINI_MODEL = os.getenv("QUANTMARKET_GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
 GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
 GEMINI_ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
@@ -37,46 +33,7 @@ def _normalize_lines(text: str) -> list[str]:
         parts = [part.strip() for part in re.split(r"(?<=[.!?])\s+", cleaned_lines[0]) if part.strip()]
         if len(parts) > 1:
             cleaned_lines = parts
-    return cleaned_lines[:4]
-
-
-def _call_openai(prompt: str) -> list[str]:
-    if not OPENAI_API_KEY:
-        raise AIGenerationError("OPENAI_API_KEY is not configured.")
-    body = {
-        "model": OPENAI_MODEL,
-        "input": prompt + " 정확히 4문장만 평문으로 답하세요. 각 문장은 줄바꿈으로 구분하고, 숫자 bullet, JSON, 마크다운, 제목은 쓰지 마세요.",
-        "max_output_tokens": 320,
-        "temperature": 0.9,
-    }
-    request = Request(
-        OPENAI_ENDPOINT,
-        data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
-        method="POST",
-        headers={
-            "Content-Type": "application/json; charset=utf-8",
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-        },
-    )
-    try:
-        with urlopen(request, timeout=45) as response:
-            payload = json.loads(response.read().decode("utf-8-sig"))
-    except HTTPError as exc:
-        detail = exc.read().decode("utf-8", errors="replace")
-        raise AIGenerationError(f"OpenAI HTTP {exc.code}: {detail}") from exc
-    text = payload.get("output_text") or ""
-    if not text:
-        output = payload.get("output") or []
-        text_parts: list[str] = []
-        for item in output:
-            for content in item.get("content", []) or []:
-                if content.get("type") in {"output_text", "text"} and content.get("text"):
-                    text_parts.append(content["text"])
-        text = "\n".join(text_parts)
-    lines = _normalize_lines(text)
-    if not lines:
-        raise AIGenerationError(f"OpenAI returned no usable text lines: {payload}")
-    return lines[:4]
+    return cleaned_lines[:8]
 
 
 def _call_gemini(prompt: str) -> list[str]:
@@ -85,12 +42,12 @@ def _call_gemini(prompt: str) -> list[str]:
     body = {
         "contents": [{
             "parts": [{
-                "text": prompt + " 정확히 4문장만 평문으로 답하세요. 각 문장은 줄바꿈으로 구분하고, 숫자 bullet, JSON, 마크다운, 제목은 쓰지 마세요."
+                "text": prompt + " 정확히 8줄만 평문으로 답하세요. 1~4줄은 긍정:, 5~8줄은 리스크:로 시작하세요. 각 줄은 줄바꿈으로 구분하고, 숫자 bullet, JSON, 마크다운, 제목은 쓰지 마세요."
             }]
         }],
         "generationConfig": {
             "temperature": 1.0,
-            "maxOutputTokens": 320,
+            "maxOutputTokens": 720,
             "thinkingConfig": {
                 "thinkingBudget": 0
             }
@@ -120,7 +77,7 @@ def _call_gemini(prompt: str) -> list[str]:
     lines = _normalize_lines("\n".join(text_parts))
     if not lines:
         raise AIGenerationError(f"Gemini returned no usable text lines: {text_parts}")
-    return lines[:4]
+    return lines[:8]
 
 
 def refresh_ai_briefs(*, market: str, asof: str, summary: dict, detail: dict, generated_at: str, market_context: dict | None = None, intraday_context: dict | None = None) -> dict:
@@ -131,11 +88,6 @@ def refresh_ai_briefs(*, market: str, asof: str, summary: dict, detail: dict, ge
         "market_context": market_context or {},
         "intraday_context": intraday_context or {},
         "providers": {
-            "chatgpt": {
-                "enabled": bool(OPENAI_API_KEY),
-                "model": OPENAI_MODEL,
-                "status": "not_attempted",
-            },
             "gemini": {
                 "enabled": bool(GEMINI_API_KEY),
                 "model": GEMINI_MODEL,
@@ -145,7 +97,6 @@ def refresh_ai_briefs(*, market: str, asof: str, summary: dict, detail: dict, ge
     }
 
     provider_specs = [
-        ("chatgpt", OPENAI_API_KEY, _call_openai, f"openai:{OPENAI_MODEL}"),
         ("gemini", GEMINI_API_KEY, _call_gemini, f"gemini:{GEMINI_MODEL}"),
     ]
 
@@ -183,10 +134,27 @@ def refresh_ai_briefs(*, market: str, asof: str, summary: dict, detail: dict, ge
                 "summary_lines": lines,
             })
         except AIGenerationError as exc:
-            report["providers"][provider].update({
-                "status": "error",
-                "error": str(exc),
-            })
+            if previous_lines:
+                fallback_source = (previous_record or {}).get("source") or source
+                upsert_ai_brief(
+                    market=market,
+                    asof=asof,
+                    provider=provider,
+                    summary_lines=previous_lines,
+                    generated_at=generated_at,
+                    source=f"fallback_previous:{fallback_source}",
+                )
+                report["providers"][provider].update({
+                    "status": "fallback_previous",
+                    "error": str(exc),
+                    "line_count": len(previous_lines),
+                    "summary_lines": previous_lines,
+                })
+            else:
+                report["providers"][provider].update({
+                    "status": "error",
+                    "error": str(exc),
+                })
 
     write_payload_file(REPORT_DIR / "market_ai_generation_status_latest.json", report)
     return load_ai_briefs(market=market, asof=asof)

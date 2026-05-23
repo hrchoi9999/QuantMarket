@@ -24,6 +24,29 @@ $logPath = Join-Path $logDir "market_analysis_run_$timestamp.log"
 $asof = (Get-Date).ToString("yyyy-MM-ddTHH:00:00zzz")
 $scriptPath = Join-Path $root "run_market_analysis_pipeline.py"
 $syncScript = Join-Path $root "scripts\sync_market_analysis_to_quantservice.ps1"
+$lockRoot = Join-Path $logDir "locks"
+$lockDir = Join-Path $lockRoot "public_publish.lock"
+New-Item -ItemType Directory -Force -Path $lockRoot | Out-Null
+
+function Acquire-PublicPublishLock {
+    if (Test-Path -LiteralPath $lockDir) {
+        $ageMinutes = ((Get-Date) - (Get-Item -LiteralPath $lockDir).LastWriteTime).TotalMinutes
+        if ($ageMinutes -lt 90) {
+            "[$(Get-Date -Format s)] Skipping QuantMarket full hourly pipeline because public publish lock is active age_minutes=$([math]::Round($ageMinutes, 1)) lock=$lockDir" | Tee-Object -FilePath $logPath
+            return $false
+        }
+        Remove-Item -LiteralPath $lockDir -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path $lockDir -ErrorAction Stop | Out-Null
+    return $true
+}
+
+$lockAcquired = $false
+try {
+$lockAcquired = Acquire-PublicPublishLock
+if (-not $lockAcquired) {
+    exit 0
+}
 
 $args = @($scriptPath, "--market", $Market, "--asof", $asof)
 if ($SeedSample) {
@@ -55,3 +78,8 @@ if ($SyncToQuantService) {
 }
 
 "[$(Get-Date -Format s)] Completed QuantMarket full hourly pipeline" | Tee-Object -FilePath $logPath -Append
+} finally {
+    if ($lockAcquired -and (Test-Path -LiteralPath $lockDir)) {
+        Remove-Item -LiteralPath $lockDir -Recurse -Force
+    }
+}

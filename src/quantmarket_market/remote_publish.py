@@ -42,6 +42,42 @@ HANDOFF_FILENAMES = [
     "api_v1_market_analysis_asset_strength.json",
     "api_v1_market_analysis_state_transition.json",
     "api_v1_market_analysis_model_background.json",
+    "quantservice_market_next_day_preview.json",
+    "api_v1_market_analysis_next_day_preview.json",
+    "market_next_day_preview_manifest.json",
+    "quantservice_market_analysis_tabs.json",
+    "quantservice_market_live_context.json",
+    "quantservice_market_data_guide.json",
+    "quantservice_market_index_panel.json",
+    "quantservice_market_breadth_detail.json",
+    "quantservice_market_us_macro_panel.json",
+    "quantservice_market_dart_summary.json",
+    "quantservice_market_environment_indicators.json",
+    "quantservice_market_environment_indicators_manifest.json",
+    "api_v1_market_analysis_tabs.json",
+    "api_v1_market_analysis_live_context.json",
+    "api_v1_market_analysis_data_guide.json",
+    "api_v1_market_analysis_index_panel.json",
+    "api_v1_market_analysis_breadth_detail.json",
+    "api_v1_market_analysis_us_macro_panel.json",
+    "api_v1_market_analysis_dart_summary.json",
+    "api_v1_market_environment_indicators.json",
+]
+HISTORY_HANDOFF_FILENAMES = [
+    "quantservice_market_timeline_history.json",
+    "quantservice_market_asset_strength_history.json",
+    "quantservice_market_state_transition_history.json",
+    "quantservice_market_next_day_preview_history.json",
+    "quantservice_market_breadth_detail_history.json",
+    "quantservice_market_us_macro_panel_history.json",
+    "api_v1_market_analysis_timeline_history.json",
+    "api_v1_market_analysis_asset_strength_history.json",
+    "api_v1_market_analysis_state_transition_history.json",
+    "api_v1_market_analysis_next_day_preview_history.json",
+    "api_v1_market_analysis_breadth_detail_history.json",
+    "api_v1_market_analysis_us_macro_panel_history.json",
+    "quantservice_market_dart_summary_history.json",
+    "api_v1_market_analysis_dart_summary_history.json",
 ]
 OAUTH_SCOPE = "https://www.googleapis.com/auth/devstorage.read_write"
 GCS_UPLOAD_URL = "https://storage.googleapis.com/upload/storage/v1/b/{bucket}/o?{query}"
@@ -129,11 +165,13 @@ class _GcsJsonPublisher:
             return json.loads(response.read().decode("utf-8-sig"))
 
 
-def _load_handoff_payloads(handoff_dir: Path) -> dict[str, bytes]:
+def _load_handoff_payloads(handoff_dir: Path, filenames: list[str], *, optional: bool = False) -> dict[str, bytes]:
     payloads: dict[str, bytes] = {}
-    for filename in HANDOFF_FILENAMES:
+    for filename in filenames:
         path = handoff_dir / filename
         if not path.exists():
+            if optional:
+                continue
             raise RemotePublishError(f"Missing handoff file for remote publish: {path}")
         payloads[filename] = path.read_bytes()
     return payloads
@@ -154,10 +192,12 @@ def publish_remote_handoff(
         }
 
     config.validate()
-    payloads = _load_handoff_payloads(handoff_dir)
+    payloads = _load_handoff_payloads(handoff_dir, HANDOFF_FILENAMES)
+    history_payloads = _load_handoff_payloads(handoff_dir, HISTORY_HANDOFF_FILENAMES, optional=True)
     asof_date = asof[:10]
     current_base_url = config.resolved_base_url()
     history_prefix = f"{config.prefix}/history/{asof_date}/{run_id}"
+    history_payload_prefix = f"{config.prefix}/history"
     current_prefix = f"{config.prefix}/current"
     ordered_current_files = [
         filename for filename in HANDOFF_FILENAMES if filename != "quantservice_market_manifest.json"
@@ -176,8 +216,12 @@ def publish_remote_handoff(
             "files": {
                 filename: f"{current_base_url}/{filename}" for filename in HANDOFF_FILENAMES
             },
+            "history_files": {
+                filename: f"{current_base_url.rsplit('/current', 1)[0]}/history/{filename}"
+                for filename in history_payloads
+            },
             "fallback_policy": "QuantService remote failure -> local fallback",
-            "update_interval_minutes": 60,
+            "update_interval_minutes": 10,
         }
 
     publisher = _GcsJsonPublisher(config)
@@ -201,6 +245,15 @@ def publish_remote_handoff(
             content_type=mimetypes.guess_type(filename)[0] or "application/json; charset=utf-8",
         )
 
+    history_payload_results: dict[str, dict] = {}
+    for filename, payload in history_payloads.items():
+        object_name = f"{history_payload_prefix}/{filename}"
+        history_payload_results[filename] = publisher.upload_bytes(
+            object_name=object_name,
+            payload=payload,
+            content_type=mimetypes.guess_type(filename)[0] or "application/json; charset=utf-8",
+        )
+
     return {
         "enabled": True,
         "provider": config.provider,
@@ -208,10 +261,15 @@ def publish_remote_handoff(
         "access_mode": config.access_mode,
         "base_url": current_base_url,
         "history_prefix": history_prefix,
+        "history_payload_prefix": history_payload_prefix,
         "current_prefix": current_prefix,
         "run_id": run_id,
         "files": {
             filename: f"{current_base_url}/{filename}" for filename in HANDOFF_FILENAMES
+        },
+        "history_files": {
+            filename: f"{current_base_url.rsplit('/current', 1)[0]}/history/{filename}"
+            for filename in history_payloads
         },
         "current_object_meta": {
             filename: {
@@ -221,6 +279,63 @@ def publish_remote_handoff(
             }
             for filename in current_results
         },
+        "history_object_meta": {
+            filename: {
+                "etag": history_payload_results[filename].get("etag"),
+                "updated": _normalize_remote_updated(history_payload_results[filename].get("updated")),
+                "generation": history_payload_results[filename].get("generation"),
+            }
+            for filename in history_payload_results
+        },
         "fallback_policy": "QuantService remote failure -> local fallback",
-        "update_interval_minutes": 60,
+        "update_interval_minutes": 10,
+    }
+
+
+def publish_remote_files(
+    *,
+    handoff_dir: Path,
+    filenames: list[str],
+    config: RemotePublishConfig,
+) -> dict:
+    if not config.enabled:
+        return {
+            "enabled": False,
+            "reason": "remote publish disabled",
+            "files": filenames,
+        }
+    config.validate()
+    current_base_url = config.resolved_base_url()
+    current_prefix = f"{config.prefix}/current"
+    payloads = _load_handoff_payloads(handoff_dir, filenames)
+    if config.dry_run:
+        return {
+            "enabled": True,
+            "provider": config.provider,
+            "dry_run": True,
+            "base_url": current_base_url,
+            "files": {filename: f"{current_base_url}/{filename}" for filename in filenames},
+        }
+    publisher = _GcsJsonPublisher(config)
+    results = {}
+    for filename, payload in payloads.items():
+        results[filename] = publisher.upload_bytes(
+            object_name=f"{current_prefix}/{filename}",
+            payload=payload,
+            content_type=mimetypes.guess_type(filename)[0] or "application/json; charset=utf-8",
+        )
+    return {
+        "enabled": True,
+        "provider": config.provider,
+        "dry_run": False,
+        "base_url": current_base_url,
+        "files": {filename: f"{current_base_url}/{filename}" for filename in filenames},
+        "current_object_meta": {
+            filename: {
+                "etag": result.get("etag"),
+                "updated": _normalize_remote_updated(result.get("updated")),
+                "generation": result.get("generation"),
+            }
+            for filename, result in results.items()
+        },
     }
