@@ -46,9 +46,25 @@
 ## 검증
 
 1. 3축 원점수, 변화율, 이동평균, 교차항을 feature로 만든다.
-2. 미래 지수 수익률과 feature 상관을 산출한다.
-3. 3축 bucket 조합별 평균 수익률, 양의 수익률 비율, -5% 손실 비율을 산출한다.
-4. `sklearn` 기준 Logistic Regression baseline으로 5단계 방향 라벨 예측력을 점검한다.
+2. 기존 `market_features_hourly`와 `market_component_scores`를 확장 feature로 결합한다.
+3. 미래 지수 수익률과 feature 상관을 산출한다.
+4. 3축 bucket 조합별 평균 수익률, 양의 수익률 비율, -5% 손실 비율을 산출한다.
+5. `sklearn` 기준 Logistic Regression baseline으로 5단계 방향 라벨 예측력을 점검한다.
+6. 5단계 라벨을 `down / sideways / up` 3-class로 압축해 별도 성능을 평가한다.
+7. horizon별 연도 단위 walk-forward 성능표를 생성한다.
+
+## 기본 성능표
+
+앞으로 연구 결과 보고 시 아래 horizon을 한 표에 같이 표시한다.
+
+| 범위 | 5d | 10d | 20d | 60d |
+|---|---:|---:|---:|---:|
+| ALL | label/probability | label/probability | label/probability | label/probability |
+| KOSPI | label/probability | label/probability | label/probability | label/probability |
+| KOSDAQ | label/probability | label/probability | label/probability | label/probability |
+| KOSPI200 | label/probability | label/probability | label/probability | label/probability |
+
+성능 평가는 `dashboard_axis_horizon_scorecard_current.csv`를 기준으로 holdout과 walk-forward를 같이 본다.
 
 ## 실행
 
@@ -63,3 +79,10 @@ D:\Quant\venv64\Scripts\python.exe D:\QuantMarket\build_market_dashboard_signal_
 - 최소 1년 이상 out-of-sample 구간에서 과도한 붕괴 없음
 
 이 기준을 만족하면 다른 쓰레드에는 `dashboard_axis_signal_latest.json`와 current CSV를 읽기 전용 인터페이스로 공개한다.
+
+## v2 산출물
+
+- `dashboard_axis_model_metrics_3class_current.csv`
+- `dashboard_axis_walk_forward_metrics_current.csv`
+- `dashboard_axis_horizon_scorecard_current.csv`
+- `dashboard_axis_signal_latest.json#model_predictions_3class`

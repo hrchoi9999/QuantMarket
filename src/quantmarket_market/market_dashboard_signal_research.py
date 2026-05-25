@@ -23,6 +23,14 @@ INDEX_CODES = {
     "KOSPI200": "1028",
 }
 LABELS = ["strong_down", "mild_down", "sideways", "mild_up", "strong_up"]
+LABELS_3CLASS = ["down", "sideways", "up"]
+LABEL_3CLASS_MAP = {
+    "strong_down": "down",
+    "mild_down": "down",
+    "sideways": "sideways",
+    "mild_up": "up",
+    "strong_up": "up",
+}
 
 
 @dataclass(frozen=True)
@@ -104,6 +112,77 @@ def _build_axis_features(composite: dict) -> pd.DataFrame:
     return features
 
 
+def _read_expanded_market_features(source_db: Path, market: str) -> pd.DataFrame:
+    with _connect(source_db) as con:
+        rows = con.execute(
+            """
+            WITH latest_features AS (
+                SELECT
+                    f.*,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY f.asof_date
+                        ORDER BY f.asof DESC
+                    ) AS rn
+                FROM market_features_hourly f
+                WHERE f.market = ?
+            )
+            SELECT
+                f.asof_date,
+                f.kospi_1d_ret,
+                f.kospi_5d_ret,
+                f.kospi_20d_ret,
+                f.kospi_60d_ret,
+                f.kosdaq_1d_ret,
+                f.kosdaq_5d_ret,
+                f.kosdaq_20d_ret,
+                f.kosdaq_60d_ret,
+                f.kospi200_20d_ret,
+                f.usdkrw_20d_ret,
+                f.rate_cd91_20d_chg,
+                f.rate_ktb3y_20d_chg,
+                f.above_20dma_ratio,
+                f.above_60dma_ratio,
+                f.adv_dec_ratio,
+                f.new_high_count,
+                f.new_low_count,
+                f.breadth_universe_count,
+                f.realized_vol_20d,
+                f.drawdown_5d,
+                f.drawdown_20d,
+                f.bond_20d_ret,
+                f.gold_20d_ret,
+                f.inverse_20d_ret,
+                f.breadth_proxy_flag,
+                f.defensive_proxy_flag,
+                f.regime_3m_score,
+                c.trend_score,
+                c.breadth_score,
+                c.risk_score,
+                c.defensive_flow_score,
+                c.total_score AS production_total_score
+            FROM latest_features f
+            LEFT JOIN market_component_scores c
+              ON c.market = f.market
+             AND c.asof = f.asof
+            WHERE f.rn = 1
+            ORDER BY f.asof_date
+            """,
+            (market,),
+        ).fetchall()
+    frame = pd.DataFrame([dict(row) for row in rows])
+    if frame.empty:
+        return frame
+    frame["asof_date"] = pd.to_datetime(frame["asof_date"]).dt.strftime("%Y-%m-%d")
+    for col in frame.columns:
+        if col != "asof_date":
+            frame[col] = pd.to_numeric(frame[col], errors="coerce")
+    frame["new_high_low_balance"] = frame["new_high_count"] - frame["new_low_count"]
+    frame["breadth_minus_risk"] = frame["breadth_score"] - frame["risk_score"]
+    frame["trend_x_breadth"] = frame["trend_score"] * frame["breadth_score"]
+    frame["risk_x_defensive"] = frame["risk_score"] * frame["defensive_flow_score"]
+    return frame
+
+
 def _read_index_returns(source_db: Path) -> pd.DataFrame:
     with _connect(source_db) as con:
         rows = con.execute(
@@ -160,6 +239,12 @@ def _label_from_thresholds(value: float, thresholds: dict[str, float]) -> str | 
     return "strong_up"
 
 
+def _label_to_3class(label: str | None) -> str | None:
+    if label is None or pd.isna(label):
+        return None
+    return LABEL_3CLASS_MAP.get(str(label))
+
+
 def _build_dataset(features: pd.DataFrame, targets: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     dataset = features.merge(targets, on="asof_date", how="inner")
     thresholds = []
@@ -186,6 +271,9 @@ def _build_dataset(features: pd.DataFrame, targets: pd.DataFrame) -> tuple[pd.Da
             dataset.loc[scope_mask, label_col] = dataset.loc[scope_mask, col].apply(
                 lambda value: _label_from_thresholds(value, th)
             )
+            dataset.loc[scope_mask, f"direction_label_3class_{horizon}d"] = dataset.loc[
+                scope_mask, label_col
+            ].apply(_label_to_3class)
     return dataset, pd.DataFrame(thresholds)
 
 
@@ -200,20 +288,7 @@ def _axis_bucket(value: float | None) -> str:
 
 
 def _predictive_power(dataset: pd.DataFrame) -> pd.DataFrame:
-    feature_cols = [
-        *AXIS_IDS,
-        "axis_avg",
-        "axis_min",
-        "axis_max",
-        "axis_dispersion",
-        "env_x_model",
-        "env_x_short",
-        "model_x_short",
-        *[f"{axis}_delta_1d" for axis in AXIS_IDS],
-        *[f"{axis}_delta_5d" for axis in AXIS_IDS],
-        *[f"{axis}_ma_5d" for axis in AXIS_IDS],
-        *[f"{axis}_ma_20d" for axis in AXIS_IDS],
-    ]
+    feature_cols = _model_feature_columns(dataset)
     rows = []
     for scope in SCOPES:
         scoped = dataset[dataset["market_scope"] == scope]
@@ -221,7 +296,7 @@ def _predictive_power(dataset: pd.DataFrame) -> pd.DataFrame:
             target = f"forward_return_{horizon}d"
             for feature in feature_cols:
                 valid = scoped[[feature, target]].dropna()
-                if valid.shape[0] < 30:
+                if valid.shape[0] < 30 or valid[feature].nunique() < 2 or valid[target].nunique() < 2:
                     continue
                 rows.append(
                     {
@@ -270,30 +345,50 @@ def _combo_summary(dataset: pd.DataFrame) -> pd.DataFrame:
 
 
 def _model_feature_columns(dataset: pd.DataFrame) -> list[str]:
-    cols = [
-        *AXIS_IDS,
-        "axis_avg",
-        "axis_min",
-        "axis_max",
-        "axis_dispersion",
-        "env_x_model",
-        "env_x_short",
-        "model_x_short",
-        *[f"{axis}_delta_1d" for axis in AXIS_IDS],
-        *[f"{axis}_delta_5d" for axis in AXIS_IDS],
-        *[f"{axis}_ma_5d" for axis in AXIS_IDS],
-        *[f"{axis}_ma_20d" for axis in AXIS_IDS],
-    ]
-    return [col for col in cols if col in dataset.columns]
+    excluded_prefixes = ("forward_return_", "direction_label_")
+    excluded = {"asof_date", "market_scope"}
+    cols = []
+    for col in dataset.columns:
+        if col in excluded or col.startswith(excluded_prefixes):
+            continue
+        if pd.api.types.is_numeric_dtype(dataset[col]):
+            cols.append(col)
+    return cols
 
 
-def _train_baseline_models(dataset: pd.DataFrame, latest_features: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+def _usable_feature_columns(frame: pd.DataFrame, feature_cols: list[str], *, min_observed: int = 30) -> list[str]:
+    usable = []
+    for col in feature_cols:
+        if col not in frame.columns:
+            continue
+        values = frame[col].dropna()
+        if values.shape[0] >= min_observed and values.nunique() > 1:
+            usable.append(col)
+    return usable
+
+
+def _sklearn_pipeline():
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    return make_pipeline(
+        SimpleImputer(strategy="median"),
+        StandardScaler(),
+        LogisticRegression(max_iter=2000, class_weight="balanced"),
+    )
+
+
+def _train_label_models(
+    dataset: pd.DataFrame,
+    latest_features: pd.DataFrame,
+    *,
+    label_kind: str,
+    label_column_template: str,
+) -> tuple[pd.DataFrame, dict]:
     try:
-        from sklearn.impute import SimpleImputer
-        from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
-        from sklearn.pipeline import make_pipeline
-        from sklearn.preprocessing import StandardScaler
     except Exception as exc:  # pragma: no cover - environment dependent
         return pd.DataFrame([{"status": "skipped", "reason": str(exc)}]), {}
 
@@ -308,7 +403,7 @@ def _train_baseline_models(dataset: pd.DataFrame, latest_features: pd.DataFrame)
         if latest_feature.empty:
             continue
         for horizon in HORIZONS:
-            label_col = f"direction_label_{horizon}d"
+            label_col = label_column_template.format(horizon=horizon)
             trainable = scoped.dropna(subset=[label_col]).copy()
             trainable = trainable[trainable[feature_cols].notna().any(axis=1)]
             if trainable.shape[0] < 200 or trainable[label_col].nunique() < 3:
@@ -319,17 +414,17 @@ def _train_baseline_models(dataset: pd.DataFrame, latest_features: pd.DataFrame)
                 continue
             train = trainable.iloc[:split]
             test = trainable.iloc[split:]
-            model = make_pipeline(
-                SimpleImputer(strategy="median"),
-                StandardScaler(),
-                LogisticRegression(max_iter=2000, class_weight="balanced"),
-            )
-            model.fit(train[feature_cols], train[label_col])
-            pred = model.predict(test[feature_cols])
+            usable_features = _usable_feature_columns(train, feature_cols)
+            if not usable_features:
+                continue
+            model = _sklearn_pipeline()
+            model.fit(train[usable_features], train[label_col])
+            pred = model.predict(test[usable_features])
             baseline = test[label_col].mode().iloc[0]
             metrics.append(
                 {
                     "status": "ok",
+                    "label_kind": label_kind,
                     "market_scope": scope,
                     "forecast_horizon": f"{horizon}d",
                     "train_start": train["asof_date"].min(),
@@ -338,24 +433,114 @@ def _train_baseline_models(dataset: pd.DataFrame, latest_features: pd.DataFrame)
                     "test_end": test["asof_date"].max(),
                     "train_count": int(train.shape[0]),
                     "test_count": int(test.shape[0]),
+                    "feature_count": int(len(usable_features)),
                     "accuracy": float(accuracy_score(test[label_col], pred)),
                     "balanced_accuracy": float(balanced_accuracy_score(test[label_col], pred)),
                     "macro_f1": float(f1_score(test[label_col], pred, average="macro")),
                     "baseline_accuracy": float(accuracy_score(test[label_col], [baseline] * test.shape[0])),
                 }
             )
-            probs = model.predict_proba(latest_feature[feature_cols])[0]
+            probs = model.predict_proba(latest_feature[usable_features])[0]
             classes = list(model.classes_)
             latest_predictions[f"{scope}_{horizon}d"] = {
                 "market_scope": scope,
                 "forecast_horizon": f"{horizon}d",
                 "asof_date": latest_feature["asof_date"].iloc[0],
-                "predicted_label": str(model.predict(latest_feature[feature_cols])[0]),
+                "predicted_label": str(model.predict(latest_feature[usable_features])[0]),
                 "class_probabilities": {
                     str(label): round(float(prob), 6) for label, prob in zip(classes, probs)
                 },
             }
     return pd.DataFrame(metrics), latest_predictions
+
+
+def _walk_forward_metrics(
+    dataset: pd.DataFrame,
+    *,
+    label_kind: str,
+    label_column_template: str,
+    first_test_year: int = 2020,
+) -> pd.DataFrame:
+    try:
+        from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
+    except Exception as exc:  # pragma: no cover - environment dependent
+        return pd.DataFrame([{"status": "skipped", "reason": str(exc)}])
+
+    feature_cols = _model_feature_columns(dataset)
+    frame = dataset.copy()
+    frame["year"] = pd.to_datetime(frame["asof_date"]).dt.year
+    rows = []
+    for scope in SCOPES:
+        scoped = frame[frame["market_scope"] == scope].sort_values("asof_date")
+        years = [int(year) for year in sorted(scoped["year"].dropna().unique()) if int(year) >= first_test_year]
+        for horizon in HORIZONS:
+            label_col = label_column_template.format(horizon=horizon)
+            for test_year in years:
+                train = scoped[(scoped["year"] < test_year) & scoped[label_col].notna()].copy()
+                test = scoped[(scoped["year"] == test_year) & scoped[label_col].notna()].copy()
+                train = train[train[feature_cols].notna().any(axis=1)]
+                test = test[test[feature_cols].notna().any(axis=1)]
+                if train.shape[0] < 500 or test.shape[0] < 30 or train[label_col].nunique() < 3:
+                    continue
+                usable_features = _usable_feature_columns(train, feature_cols)
+                if not usable_features:
+                    continue
+                model = _sklearn_pipeline()
+                model.fit(train[usable_features], train[label_col])
+                pred = model.predict(test[usable_features])
+                baseline = test[label_col].mode().iloc[0]
+                rows.append(
+                    {
+                        "status": "ok",
+                        "label_kind": label_kind,
+                        "market_scope": scope,
+                        "forecast_horizon": f"{horizon}d",
+                        "test_year": int(test_year),
+                        "train_start": train["asof_date"].min(),
+                        "train_end": train["asof_date"].max(),
+                        "test_start": test["asof_date"].min(),
+                        "test_end": test["asof_date"].max(),
+                        "train_count": int(train.shape[0]),
+                        "test_count": int(test.shape[0]),
+                        "feature_count": int(len(usable_features)),
+                        "accuracy": float(accuracy_score(test[label_col], pred)),
+                        "balanced_accuracy": float(balanced_accuracy_score(test[label_col], pred)),
+                        "macro_f1": float(f1_score(test[label_col], pred, average="macro")),
+                        "baseline_accuracy": float(accuracy_score(test[label_col], [baseline] * test.shape[0])),
+                    }
+                )
+    return pd.DataFrame(rows)
+
+
+def _horizon_scorecard(metrics: pd.DataFrame, walk_forward: pd.DataFrame) -> pd.DataFrame:
+    if metrics.empty:
+        return metrics
+    rows = []
+    for _, row in metrics.iterrows():
+        if walk_forward.empty or "label_kind" not in walk_forward.columns:
+            walk = pd.DataFrame()
+        else:
+            walk = walk_forward[
+                (walk_forward["label_kind"] == row.get("label_kind"))
+                & (walk_forward["market_scope"] == row.get("market_scope"))
+                & (walk_forward["forecast_horizon"] == row.get("forecast_horizon"))
+                & (walk_forward["status"] == "ok")
+            ]
+        rows.append(
+            {
+                "label_kind": row.get("label_kind"),
+                "market_scope": row.get("market_scope"),
+                "forecast_horizon": row.get("forecast_horizon"),
+                "holdout_balanced_accuracy": row.get("balanced_accuracy"),
+                "holdout_macro_f1": row.get("macro_f1"),
+                "holdout_baseline_accuracy": row.get("baseline_accuracy"),
+                "walk_forward_years": int(walk.shape[0]) if not walk.empty else 0,
+                "walk_forward_balanced_accuracy_avg": float(walk["balanced_accuracy"].mean()) if not walk.empty else None,
+                "walk_forward_macro_f1_avg": float(walk["macro_f1"].mean()) if not walk.empty else None,
+                "walk_forward_baseline_accuracy_avg": float(walk["baseline_accuracy"].mean()) if not walk.empty else None,
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def _write_sqlite(target_db: Path, tables: dict[str, pd.DataFrame]) -> None:
@@ -396,15 +581,35 @@ def build_market_dashboard_signal_research(
     generated_at = _now_iso()
     latest_asof, composite = _read_latest_composite(source_db, market)
     axis_features = _build_axis_features(composite)
+    expanded_features = _read_expanded_market_features(source_db, market)
+    if not expanded_features.empty:
+        axis_features = axis_features.merge(expanded_features, on="asof_date", how="left")
     targets = _read_index_returns(source_db)
     dataset, thresholds = _build_dataset(axis_features, targets)
     predictive = _predictive_power(dataset)
     combo = _combo_summary(dataset)
-    model_metrics, latest_predictions = _train_baseline_models(dataset, axis_features)
+    model_metrics, latest_predictions = _train_label_models(
+        dataset,
+        axis_features,
+        label_kind="5class",
+        label_column_template="direction_label_{horizon}d",
+    )
+    model_metrics_3class, latest_predictions_3class = _train_label_models(
+        dataset,
+        axis_features,
+        label_kind="3class",
+        label_column_template="direction_label_3class_{horizon}d",
+    )
+    walk_forward_metrics = _walk_forward_metrics(
+        dataset,
+        label_kind="3class",
+        label_column_template="direction_label_3class_{horizon}d",
+    )
+    scorecard = _horizon_scorecard(model_metrics_3class, walk_forward_metrics)
 
     latest_axis = axis_features.sort_values("asof_date").iloc[-1].to_dict()
     latest_signal = {
-        "schema_version": "market_dashboard_signal_research.v1",
+        "schema_version": "market_dashboard_signal_research.v2",
         "generated_at": generated_at,
         "source_payload_asof": latest_asof,
         "latest_axis_asof_date": latest_axis.get("asof_date"),
@@ -415,14 +620,24 @@ def build_market_dashboard_signal_research(
         },
         "axis_combo_bucket": "|".join(_axis_bucket(latest_axis.get(axis_id)) for axis_id in AXIS_IDS),
         "model_predictions": latest_predictions,
+        "model_predictions_3class": latest_predictions_3class,
         "label_policy": {
-            "type": "per_scope_horizon_quantile_5class",
+            "type": "per_scope_horizon_quantile_5class_and_collapsed_3class",
             "labels": LABELS,
+            "labels_3class": LABELS_3CLASS,
             "display_mapping": {
                 "down": ["strong_down", "mild_down"],
                 "sideways": ["sideways"],
                 "up": ["mild_up", "strong_up"],
             },
+        },
+        "feature_policy": {
+            "base": "market_state_composite 3-axis",
+            "expanded": [
+                "market_features_hourly latest daily features",
+                "market_component_scores production component scores",
+            ],
+            "feature_count": len(_model_feature_columns(dataset)),
         },
         "notes": [
             "Production market analysis mart is not modified.",
@@ -439,6 +654,9 @@ def build_market_dashboard_signal_research(
         "dashboard_axis_predictive_power": predictive,
         "dashboard_axis_combo_summary": combo,
         "dashboard_axis_model_metrics": model_metrics,
+        "dashboard_axis_model_metrics_3class": model_metrics_3class,
+        "dashboard_axis_walk_forward_metrics": walk_forward_metrics,
+        "dashboard_axis_horizon_scorecard": scorecard,
     }
     _write_sqlite(target_db, tables)
 
@@ -449,6 +667,9 @@ def build_market_dashboard_signal_research(
     _write_csv(output_dir / "dashboard_axis_predictive_power_current.csv", predictive)
     _write_csv(output_dir / "dashboard_axis_combo_summary_current.csv", combo)
     _write_csv(output_dir / "dashboard_axis_model_metrics_current.csv", model_metrics)
+    _write_csv(output_dir / "dashboard_axis_model_metrics_3class_current.csv", model_metrics_3class)
+    _write_csv(output_dir / "dashboard_axis_walk_forward_metrics_current.csv", walk_forward_metrics)
+    _write_csv(output_dir / "dashboard_axis_horizon_scorecard_current.csv", scorecard)
     (output_dir / "dashboard_axis_signal_latest.json").write_text(
         json.dumps(latest_signal, ensure_ascii=False, indent=2),
         encoding="utf-8",
@@ -469,6 +690,9 @@ def build_market_dashboard_signal_research(
             "predictive_power": "dashboard_axis_predictive_power_current.csv",
             "combo_summary": "dashboard_axis_combo_summary_current.csv",
             "model_metrics": "dashboard_axis_model_metrics_current.csv",
+            "model_metrics_3class": "dashboard_axis_model_metrics_3class_current.csv",
+            "walk_forward_metrics": "dashboard_axis_walk_forward_metrics_current.csv",
+            "horizon_scorecard": "dashboard_axis_horizon_scorecard_current.csv",
             "latest_signal": "dashboard_axis_signal_latest.json",
         },
     }
@@ -506,6 +730,18 @@ def build_market_dashboard_signal_research(
         "## Model Metrics",
         "",
         _markdown_table(model_metrics) if not model_metrics.empty else "No model metrics.",
+        "",
+        "## 3-Class Model Metrics",
+        "",
+        _markdown_table(model_metrics_3class) if not model_metrics_3class.empty else "No 3-class model metrics.",
+        "",
+        "## 3-Class Horizon Scorecard",
+        "",
+        _markdown_table(scorecard) if not scorecard.empty else "No scorecard rows.",
+        "",
+        "## 3-Class Walk-Forward Metrics",
+        "",
+        _markdown_table(walk_forward_metrics) if not walk_forward_metrics.empty else "No walk-forward rows.",
     ]
     (report_dir / "market_dashboard_signal_research_latest.md").write_text(
         "\n".join(report_md),
@@ -520,5 +756,5 @@ def build_market_dashboard_signal_research(
         report_dir=report_dir,
         row_counts={name: int(frame.shape[0]) for name, frame in tables.items()},
         latest_signal=latest_signal,
-        model_metrics=model_metrics.to_dict("records"),
+        model_metrics=model_metrics_3class.to_dict("records"),
     )
