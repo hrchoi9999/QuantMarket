@@ -34,6 +34,7 @@ reports/market_forecast_monitoring/
 reports/market_forecast_validation/
 reports/market_model_input_mart/
 reports/market_model_readiness/
+reports/market_dashboard_signal_research/
 models/
 
 # Python
@@ -51,4 +52,5 @@ service_platform/web/public_data/admin_market/current/
 service_platform/web/public_data/handoff/quantservice/current/
 service_platform/web/public_data/handoff/quantservice/admin_market/current/
 service_platform/web/public_data/next_day_preview/snapshot/
+service_platform/research/market_dashboard_signal/current/
 reports/market_analysis/logs/
