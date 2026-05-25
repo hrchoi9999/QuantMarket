@@ -183,6 +183,165 @@ def _read_expanded_market_features(source_db: Path, market: str) -> pd.DataFrame
     return frame
 
 
+def _read_flow_features(source_db: Path, market: str) -> pd.DataFrame:
+    with _connect(source_db) as con:
+        market_rows = con.execute(
+            """
+            SELECT date AS asof_date, market_scope, investor, net_buy_value
+            FROM market_investor_flow_daily
+            WHERE market = ?
+              AND market_scope IN ('ALL', 'KOSPI', 'KOSDAQ')
+              AND investor IN ('외국인', '기관합계', '개인')
+            ORDER BY date, market_scope, investor
+            """,
+            (market,),
+        ).fetchall()
+        kiwoom_rows = con.execute(
+            """
+            SELECT date AS asof_date, market_scope, investor, ticker, net_value
+            FROM kiwoom_stock_investor_flow_daily
+            WHERE market_scope IN ('KOSPI', 'KOSDAQ')
+              AND investor IN ('외국인', '기관합계', '개인', '연기금', '금융투자', '투신', '사모')
+            ORDER BY date, market_scope, investor, ticker
+            """
+        ).fetchall()
+
+    market_frame = pd.DataFrame([dict(row) for row in market_rows])
+    kiwoom_frame = pd.DataFrame([dict(row) for row in kiwoom_rows])
+    frames = []
+
+    if not market_frame.empty:
+        market_frame["net_buy_value"] = pd.to_numeric(market_frame["net_buy_value"], errors="coerce")
+        pivot = market_frame.pivot_table(
+            index=["asof_date", "market_scope"],
+            columns="investor",
+            values="net_buy_value",
+            aggfunc="sum",
+        ).reset_index()
+        rename = {
+            "외국인": "flow_foreign_net_eok",
+            "기관합계": "flow_institution_net_eok",
+            "개인": "flow_individual_net_eok",
+        }
+        pivot = pivot.rename(columns=rename)
+        for col in rename.values():
+            if col not in pivot.columns:
+                pivot[col] = 0.0
+            pivot[col] = pd.to_numeric(pivot[col], errors="coerce") / 100_000_000.0
+        pivot["flow_smart_money_net_eok"] = pivot["flow_foreign_net_eok"] + pivot["flow_institution_net_eok"]
+        pivot["flow_foreign_minus_individual_eok"] = pivot["flow_foreign_net_eok"] - pivot["flow_individual_net_eok"]
+        pivot["flow_institution_minus_individual_eok"] = (
+            pivot["flow_institution_net_eok"] - pivot["flow_individual_net_eok"]
+        )
+        pivot = pivot.sort_values(["market_scope", "asof_date"])
+        for base in [
+            "flow_foreign_net_eok",
+            "flow_institution_net_eok",
+            "flow_individual_net_eok",
+            "flow_smart_money_net_eok",
+        ]:
+            for window in (3, 5):
+                pivot[f"{base}_{window}d_sum"] = pivot.groupby("market_scope")[base].transform(
+                    lambda s: s.rolling(window, min_periods=1).sum()
+                )
+        frames.append(pivot)
+
+    if not kiwoom_frame.empty:
+        kiwoom_frame["net_value"] = pd.to_numeric(kiwoom_frame["net_value"], errors="coerce")
+        grouped = kiwoom_frame.groupby(["asof_date", "market_scope", "investor"], dropna=False)
+        breadth = grouped.agg(
+            net_value_sum=("net_value", "sum"),
+            positive_count=("net_value", lambda s: int((s > 0).sum())),
+            negative_count=("net_value", lambda s: int((s < 0).sum())),
+            ticker_count=("ticker", "nunique"),
+        ).reset_index()
+        breadth["positive_ratio"] = breadth["positive_count"] / breadth["ticker_count"].replace({0: pd.NA})
+        breadth["net_value_sum_eok"] = breadth["net_value_sum"] / 100_000_000.0
+        value_pivot = breadth.pivot_table(
+            index=["asof_date", "market_scope"],
+            columns="investor",
+            values="net_value_sum_eok",
+            aggfunc="sum",
+        ).reset_index()
+        ratio_pivot = breadth.pivot_table(
+            index=["asof_date", "market_scope"],
+            columns="investor",
+            values="positive_ratio",
+            aggfunc="mean",
+        ).reset_index()
+        value_pivot = value_pivot.rename(
+            columns={
+                "외국인": "kiwoom_foreign_net_eok",
+                "기관합계": "kiwoom_institution_net_eok",
+                "개인": "kiwoom_individual_net_eok",
+                "연기금": "kiwoom_pension_net_eok",
+                "금융투자": "kiwoom_financial_invest_net_eok",
+                "투신": "kiwoom_trust_net_eok",
+                "사모": "kiwoom_private_fund_net_eok",
+            }
+        )
+        ratio_pivot = ratio_pivot.rename(
+            columns={
+                "외국인": "kiwoom_foreign_positive_ratio",
+                "기관합계": "kiwoom_institution_positive_ratio",
+                "개인": "kiwoom_individual_positive_ratio",
+                "연기금": "kiwoom_pension_positive_ratio",
+                "금융투자": "kiwoom_financial_invest_positive_ratio",
+                "투신": "kiwoom_trust_positive_ratio",
+                "사모": "kiwoom_private_fund_positive_ratio",
+            }
+        )
+        kiwoom_features = value_pivot.merge(ratio_pivot, on=["asof_date", "market_scope"], how="outer")
+        for col in [
+            "kiwoom_foreign_net_eok",
+            "kiwoom_institution_net_eok",
+            "kiwoom_individual_net_eok",
+            "kiwoom_pension_net_eok",
+        ]:
+            if col not in kiwoom_features.columns:
+                kiwoom_features[col] = 0.0
+        kiwoom_features["kiwoom_smart_money_net_eok"] = (
+            kiwoom_features["kiwoom_foreign_net_eok"] + kiwoom_features["kiwoom_institution_net_eok"]
+        )
+        kiwoom_features["kiwoom_foreign_minus_individual_eok"] = (
+            kiwoom_features["kiwoom_foreign_net_eok"] - kiwoom_features["kiwoom_individual_net_eok"]
+        )
+        kiwoom_features["kiwoom_pension_plus_institution_eok"] = (
+            kiwoom_features["kiwoom_pension_net_eok"] + kiwoom_features["kiwoom_institution_net_eok"]
+        )
+        kiwoom_features = kiwoom_features.sort_values(["market_scope", "asof_date"])
+        for base in [
+            "kiwoom_foreign_net_eok",
+            "kiwoom_institution_net_eok",
+            "kiwoom_individual_net_eok",
+            "kiwoom_smart_money_net_eok",
+        ]:
+            for window in (3, 5):
+                kiwoom_features[f"{base}_{window}d_sum"] = kiwoom_features.groupby("market_scope")[base].transform(
+                    lambda s: s.rolling(window, min_periods=1).sum()
+                )
+        frames.append(kiwoom_features)
+
+    if not frames:
+        return pd.DataFrame()
+
+    result = frames[0]
+    for frame in frames[1:]:
+        result = result.merge(frame, on=["asof_date", "market_scope"], how="outer")
+    kospi_for_kospi200 = result[result["market_scope"] == "KOSPI"].copy()
+    if not kospi_for_kospi200.empty:
+        kospi_for_kospi200["market_scope"] = "KOSPI200"
+        result = pd.concat([result, kospi_for_kospi200], ignore_index=True)
+    result["asof_date"] = pd.to_datetime(result["asof_date"]).dt.strftime("%Y-%m-%d")
+    for col in result.columns:
+        if col not in {"asof_date", "market_scope"}:
+            result[col] = pd.to_numeric(result[col], errors="coerce")
+    return result.sort_values(["market_scope", "asof_date"]).drop_duplicates(
+        ["asof_date", "market_scope"],
+        keep="last",
+    )
+
+
 def _read_index_returns(source_db: Path) -> pd.DataFrame:
     with _connect(source_db) as con:
         rows = con.execute(
@@ -586,6 +745,9 @@ def build_market_dashboard_signal_research(
         axis_features = axis_features.merge(expanded_features, on="asof_date", how="left")
     targets = _read_index_returns(source_db)
     dataset, thresholds = _build_dataset(axis_features, targets)
+    flow_features = _read_flow_features(source_db, market)
+    if not flow_features.empty:
+        dataset = dataset.merge(flow_features, on=["asof_date", "market_scope"], how="left")
     predictive = _predictive_power(dataset)
     combo = _combo_summary(dataset)
     model_metrics, latest_predictions = _train_label_models(
@@ -636,8 +798,15 @@ def build_market_dashboard_signal_research(
             "expanded": [
                 "market_features_hourly latest daily features",
                 "market_component_scores production component scores",
+                "market_investor_flow_daily official/proxy flow aggregates",
+                "kiwoom_stock_investor_flow_daily stock-level flow breadth aggregates",
             ],
             "feature_count": len(_model_feature_columns(dataset)),
+            "flow_feature_available_dates": {
+                "min": None if flow_features.empty else str(flow_features["asof_date"].min()),
+                "max": None if flow_features.empty else str(flow_features["asof_date"].max()),
+                "rows": int(flow_features.shape[0]) if not flow_features.empty else 0,
+            },
         },
         "notes": [
             "Production market analysis mart is not modified.",
@@ -648,6 +817,7 @@ def build_market_dashboard_signal_research(
 
     tables = {
         "dashboard_axis_feature_daily": axis_features,
+        "dashboard_axis_flow_feature_daily": flow_features,
         "dashboard_axis_target_daily": targets,
         "dashboard_axis_model_dataset": dataset,
         "dashboard_axis_label_thresholds": thresholds,
@@ -663,6 +833,7 @@ def build_market_dashboard_signal_research(
     output_dir.mkdir(parents=True, exist_ok=True)
     report_dir.mkdir(parents=True, exist_ok=True)
     _write_csv(output_dir / "dashboard_axis_model_dataset_current.csv", dataset)
+    _write_csv(output_dir / "dashboard_axis_flow_feature_daily_current.csv", flow_features)
     _write_csv(output_dir / "dashboard_axis_label_thresholds_current.csv", thresholds)
     _write_csv(output_dir / "dashboard_axis_predictive_power_current.csv", predictive)
     _write_csv(output_dir / "dashboard_axis_combo_summary_current.csv", combo)
@@ -686,6 +857,7 @@ def build_market_dashboard_signal_research(
         "row_counts": {name: int(frame.shape[0]) for name, frame in tables.items()},
         "files": {
             "dataset": "dashboard_axis_model_dataset_current.csv",
+            "flow_features": "dashboard_axis_flow_feature_daily_current.csv",
             "thresholds": "dashboard_axis_label_thresholds_current.csv",
             "predictive_power": "dashboard_axis_predictive_power_current.csv",
             "combo_summary": "dashboard_axis_combo_summary_current.csv",

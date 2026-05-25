@@ -47,11 +47,12 @@
 
 1. 3축 원점수, 변화율, 이동평균, 교차항을 feature로 만든다.
 2. 기존 `market_features_hourly`와 `market_component_scores`를 확장 feature로 결합한다.
-3. 미래 지수 수익률과 feature 상관을 산출한다.
-4. 3축 bucket 조합별 평균 수익률, 양의 수익률 비율, -5% 손실 비율을 산출한다.
-5. `sklearn` 기준 Logistic Regression baseline으로 5단계 방향 라벨 예측력을 점검한다.
-6. 5단계 라벨을 `down / sideways / up` 3-class로 압축해 별도 성능을 평가한다.
-7. horizon별 연도 단위 walk-forward 성능표를 생성한다.
+3. `market_investor_flow_daily`와 `kiwoom_stock_investor_flow_daily`를 수급 feature Mart로 결합한다.
+4. 미래 지수 수익률과 feature 상관을 산출한다.
+5. 3축 bucket 조합별 평균 수익률, 양의 수익률 비율, -5% 손실 비율을 산출한다.
+6. `sklearn` 기준 Logistic Regression baseline으로 5단계 방향 라벨 예측력을 점검한다.
+7. 5단계 라벨을 `down / sideways / up` 3-class로 압축해 별도 성능을 평가한다.
+8. horizon별 연도 단위 walk-forward 성능표를 생성한다.
 
 ## 기본 성능표
 
@@ -86,3 +87,4 @@ D:\Quant\venv64\Scripts\python.exe D:\QuantMarket\build_market_dashboard_signal_
 - `dashboard_axis_walk_forward_metrics_current.csv`
 - `dashboard_axis_horizon_scorecard_current.csv`
 - `dashboard_axis_signal_latest.json#model_predictions_3class`
+- `dashboard_axis_flow_feature_daily_current.csv`
