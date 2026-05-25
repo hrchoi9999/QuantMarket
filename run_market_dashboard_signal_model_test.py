@@ -2,11 +2,16 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
+
+os.environ.setdefault("LOKY_MAX_CPU_COUNT", "4")
+warnings.filterwarnings("ignore", message="Could not find the number of physical cores.*")
 
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
@@ -97,16 +102,22 @@ def _model_pipeline(model_name: str):
     raise ValueError(f"unsupported model: {model_name}")
 
 
-def _evaluate_holdout(dataset: pd.DataFrame, model_name: str) -> tuple[pd.DataFrame, dict]:
+def _evaluate_holdout(
+    dataset: pd.DataFrame,
+    model_name: str,
+    *,
+    scopes: list[str],
+    horizons: list[int],
+) -> tuple[pd.DataFrame, dict]:
     from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
 
     feature_cols = _feature_columns(dataset)
     latest = dataset.sort_values("asof_date").tail(1)
     rows = []
     latest_predictions = {}
-    for scope in SCOPES:
+    for scope in scopes:
         scoped = dataset[dataset["market_scope"] == scope].sort_values("asof_date")
-        for horizon in HORIZONS:
+        for horizon in horizons:
             label_col = f"direction_label_3class_{horizon}d"
             trainable = scoped.dropna(subset=[label_col]).copy()
             trainable = trainable[trainable[feature_cols].notna().any(axis=1)]
@@ -155,17 +166,23 @@ def _evaluate_holdout(dataset: pd.DataFrame, model_name: str) -> tuple[pd.DataFr
     return pd.DataFrame(rows), latest_predictions
 
 
-def _evaluate_walk_forward(dataset: pd.DataFrame, model_name: str) -> pd.DataFrame:
+def _evaluate_walk_forward(
+    dataset: pd.DataFrame,
+    model_name: str,
+    *,
+    scopes: list[str],
+    horizons: list[int],
+) -> pd.DataFrame:
     from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
 
     feature_cols = _feature_columns(dataset)
     frame = dataset.copy()
     frame["year"] = pd.to_datetime(frame["asof_date"]).dt.year
     rows = []
-    for scope in SCOPES:
+    for scope in scopes:
         scoped = frame[frame["market_scope"] == scope].sort_values("asof_date")
         years = [int(year) for year in sorted(scoped["year"].dropna().unique()) if int(year) >= 2020]
-        for horizon in HORIZONS:
+        for horizon in horizons:
             label_col = f"direction_label_3class_{horizon}d"
             for test_year in years:
                 train = scoped[(scoped["year"] < test_year) & scoped[label_col].notna()].copy()
@@ -204,13 +221,19 @@ def _evaluate_walk_forward(dataset: pd.DataFrame, model_name: str) -> pd.DataFra
     return pd.DataFrame(rows)
 
 
-def run_model_test(model_name: str, validation: str) -> dict:
+def _suffix(model_name: str, scopes: list[str], horizons: list[int]) -> str:
+    scope_part = "allscopes" if scopes == SCOPES else "-".join(scopes).lower()
+    horizon_part = "allhorizons" if horizons == HORIZONS else "-".join(f"{h}d" for h in horizons)
+    return f"{model_name}_{scope_part}_{horizon_part}"
+
+
+def run_model_test(model_name: str, validation: str, scopes: list[str], horizons: list[int]) -> dict:
     if not DATASET_PATH.exists():
         raise FileNotFoundError(f"dataset is missing: {DATASET_PATH}")
     dataset = pd.read_csv(DATASET_PATH)
-    holdout, latest_predictions = _evaluate_holdout(dataset, model_name)
+    holdout, latest_predictions = _evaluate_holdout(dataset, model_name, scopes=scopes, horizons=horizons)
     walk_forward = (
-        _evaluate_walk_forward(dataset, model_name)
+        _evaluate_walk_forward(dataset, model_name, scopes=scopes, horizons=horizons)
         if validation in {"walk_forward", "both"}
         else pd.DataFrame()
     )
@@ -235,14 +258,17 @@ def run_model_test(model_name: str, validation: str) -> dict:
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORT_DIR.mkdir(parents=True, exist_ok=True)
-    holdout.to_csv(OUTPUT_DIR / f"dashboard_axis_model_test_{model_name}_holdout_current.csv", index=False, encoding="utf-8-sig")
-    walk_forward.to_csv(OUTPUT_DIR / f"dashboard_axis_model_test_{model_name}_walk_forward_current.csv", index=False, encoding="utf-8-sig")
-    scorecard.to_csv(OUTPUT_DIR / f"dashboard_axis_model_test_{model_name}_scorecard_current.csv", index=False, encoding="utf-8-sig")
+    suffix = _suffix(model_name, scopes, horizons)
+    holdout.to_csv(OUTPUT_DIR / f"dashboard_axis_model_test_{suffix}_holdout_current.csv", index=False, encoding="utf-8-sig")
+    walk_forward.to_csv(OUTPUT_DIR / f"dashboard_axis_model_test_{suffix}_walk_forward_current.csv", index=False, encoding="utf-8-sig")
+    scorecard.to_csv(OUTPUT_DIR / f"dashboard_axis_model_test_{suffix}_scorecard_current.csv", index=False, encoding="utf-8-sig")
     summary = {
         "status": "ok",
         "generated_at": _now_iso(),
         "model": model_name,
         "validation": validation,
+        "scopes": scopes,
+        "horizons": [f"{h}d" for h in horizons],
         "dataset": str(DATASET_PATH),
         "row_counts": {
             "holdout": int(holdout.shape[0]),
@@ -251,7 +277,7 @@ def run_model_test(model_name: str, validation: str) -> dict:
         },
         "latest_predictions": latest_predictions,
     }
-    (REPORT_DIR / f"{model_name}_summary_latest.json").write_text(
+    (REPORT_DIR / f"{suffix}_summary_latest.json").write_text(
         json.dumps(summary, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -266,12 +292,16 @@ def parse_args() -> argparse.Namespace:
         choices=["logistic", "hist_gradient_boosting", "extra_trees", "random_forest"],
     )
     parser.add_argument("--validation", choices=["holdout", "walk_forward", "both"], default="holdout")
+    parser.add_argument("--scope", action="append", choices=SCOPES, help="Optional market scope filter. Repeatable.")
+    parser.add_argument("--horizon", action="append", type=int, choices=HORIZONS, help="Optional horizon filter. Repeatable.")
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    print(json.dumps(run_model_test(args.model, args.validation), ensure_ascii=True, indent=2))
+    scopes = args.scope or SCOPES
+    horizons = args.horizon or HORIZONS
+    print(json.dumps(run_model_test(args.model, args.validation, scopes, horizons), ensure_ascii=True, indent=2))
 
 
 if __name__ == "__main__":
