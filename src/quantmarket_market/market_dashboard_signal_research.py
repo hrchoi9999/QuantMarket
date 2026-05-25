@@ -554,11 +554,9 @@ def _train_label_models(
     feature_cols = _model_feature_columns(dataset)
     metrics = []
     latest_predictions: dict[str, dict] = {}
-    latest_feature = latest_features.sort_values("asof_date").tail(1)
-    if latest_feature.empty:
-        latest_feature = dataset.sort_values("asof_date").tail(1)
     for scope in SCOPES:
         scoped = dataset[dataset["market_scope"] == scope].sort_values("asof_date")
+        latest_feature = scoped[scoped[feature_cols].notna().any(axis=1)].sort_values("asof_date").tail(1)
         if latest_feature.empty:
             continue
         for horizon in HORIZONS:
