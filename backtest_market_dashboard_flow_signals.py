@@ -15,7 +15,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from quantmarket_market.market_dashboard_signal_research import HORIZONS, INDEX_CODES, SCOPES  # noqa: E402
+from quantmarket_market.market_dashboard_signal_research import HORIZONS, INDEX_CODES  # noqa: E402
 
 OUTPUT_DIR = ROOT / "service_platform" / "research" / "market_dashboard_signal" / "current"
 REPORT_DIR = ROOT / "reports" / "market_dashboard_signal_research" / "flow_model"
@@ -27,6 +27,7 @@ THRESHOLDS_PATH = OUTPUT_DIR / "dashboard_axis_flow_threshold_tuning_thresholds_
 
 LABEL_PROBS = ["prob_down", "prob_sideways", "prob_up"]
 EXPOSURE_MAP = {"down": 0.0, "sideways": 0.5, "up": 1.0}
+INVESTABLE_SCOPES = ["KOSPI", "KOSDAQ", "KOSPI200"]
 
 
 def _now_iso() -> str:
@@ -78,9 +79,10 @@ def _build_ensemble_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _load_predictions() -> pd.DataFrame:
+def _load_predictions(scopes: list[str]) -> pd.DataFrame:
     predictions = pd.read_csv(PREDICTIONS_PATH)
     predictions["asof_date"] = pd.to_datetime(predictions["asof_date"]).dt.strftime("%Y-%m-%d")
+    predictions = predictions[predictions["market_scope"].isin(scopes)].copy()
     ensemble = _build_ensemble_predictions(predictions)
     if not ensemble.empty:
         predictions = pd.concat([predictions, ensemble], ignore_index=True)
@@ -88,7 +90,7 @@ def _load_predictions() -> pd.DataFrame:
     return predictions
 
 
-def _load_next_day_returns(db_path: Path) -> pd.DataFrame:
+def _load_next_day_returns(db_path: Path, scopes: list[str]) -> pd.DataFrame:
     with sqlite3.connect(str(db_path)) as con:
         raw = pd.read_sql_query(
             """
@@ -106,16 +108,18 @@ def _load_next_day_returns(db_path: Path) -> pd.DataFrame:
 
     frames = []
     for scope, code in INDEX_CODES.items():
+        if scope not in scopes:
+            continue
         item = raw[raw["index_code"] == code].copy().sort_values("date")
         item["market_scope"] = scope
         item["next_1d_return"] = item["close"].shift(-1) / item["close"] - 1.0
         frames.append(item[["date", "market_scope", "next_1d_return"]])
 
-    wide = None
-    for scope, code in {"KOSPI": "1001", "KOSDAQ": "2001"}.items():
-        item = raw[raw["index_code"] == code][["date", "close"]].copy().rename(columns={"close": scope})
-        wide = item if wide is None else wide.merge(item, on="date", how="outer")
-    if wide is not None:
+    if "ALL" in scopes:
+        wide = None
+        for scope, code in {"KOSPI": "1001", "KOSDAQ": "2001"}.items():
+            item = raw[raw["index_code"] == code][["date", "close"]].copy().rename(columns={"close": scope})
+            wide = item if wide is None else wide.merge(item, on="date", how="outer")
         wide = wide.sort_values("date")
         all_frame = pd.DataFrame({"date": wide["date"], "market_scope": "ALL"})
         kospi_ret = wide["KOSPI"].shift(-1) / wide["KOSPI"] - 1.0
@@ -127,9 +131,9 @@ def _load_next_day_returns(db_path: Path) -> pd.DataFrame:
     return returns.rename(columns={"date": "asof_date"})
 
 
-def _select_candidates(scorecard: pd.DataFrame) -> pd.DataFrame:
+def _select_candidates(scorecard: pd.DataFrame, scopes: list[str]) -> pd.DataFrame:
     rows = []
-    for scope in SCOPES:
+    for scope in scopes:
         for horizon in [f"{h}d" for h in HORIZONS]:
             group = scorecard[(scorecard["market_scope"] == scope) & (scorecard["forecast_horizon"] == horizon)]
             if group.empty:
@@ -385,13 +389,16 @@ def _write_markdown_report(scorecard: pd.DataFrame, path: Path) -> None:
     path.write_text("\n".join(lines), encoding="utf-8")
 
 
-def run_backtest(cost_bps: float) -> dict:
-    predictions = _load_predictions()
+def run_backtest(cost_bps: float, scopes: list[str] | None = None) -> dict:
+    scopes = scopes or INVESTABLE_SCOPES
+    predictions = _load_predictions(scopes)
     threshold_scorecard = pd.read_csv(THRESHOLD_SCORECARD_PATH)
+    threshold_scorecard = threshold_scorecard[threshold_scorecard["market_scope"].isin(scopes)].copy()
     thresholds = pd.read_csv(THRESHOLDS_PATH)
-    candidates = _select_candidates(threshold_scorecard)
+    thresholds = thresholds[thresholds["market_scope"].isin(scopes)].copy()
+    candidates = _select_candidates(threshold_scorecard, scopes)
     candidate_preds = _candidate_predictions(predictions, candidates, thresholds)
-    returns = _load_next_day_returns(DB_PATH)
+    returns = _load_next_day_returns(DB_PATH, scopes)
     trades, scorecard = _run_backtest(candidate_preds, returns, cost_bps)
 
     candidate_path = OUTPUT_DIR / "dashboard_axis_flow_backtest_candidate_set_current.csv"
@@ -412,6 +419,8 @@ def run_backtest(cost_bps: float) -> dict:
         "status": "ok",
         "generated_at": _now_iso(),
         "rule": "up=100%, sideways=50%, down=0%, daily close-to-next-close rebalance",
+        "scope_policy": "investable_only",
+        "scopes": scopes,
         "cost_bps": cost_bps,
         "row_counts": {
             "source_predictions": int(predictions.shape[0]),
@@ -435,12 +444,18 @@ def run_backtest(cost_bps: float) -> dict:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Backtest selected market dashboard flow signal candidates.")
     parser.add_argument("--cost-bps", type=float, default=5.0, help="One-way turnover cost in basis points.")
+    parser.add_argument(
+        "--scopes",
+        default=",".join(INVESTABLE_SCOPES),
+        help="Comma-separated market scopes. Default excludes ALL.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-    summary = run_backtest(cost_bps=args.cost_bps)
+    scopes = [item.strip() for item in args.scopes.split(",") if item.strip()]
+    summary = run_backtest(cost_bps=args.cost_bps, scopes=scopes)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 

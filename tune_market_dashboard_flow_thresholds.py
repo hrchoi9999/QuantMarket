@@ -14,13 +14,14 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from quantmarket_market.market_dashboard_signal_research import HORIZONS, SCOPES  # noqa: E402
+from quantmarket_market.market_dashboard_signal_research import HORIZONS  # noqa: E402
 
 OUTPUT_DIR = ROOT / "service_platform" / "research" / "market_dashboard_signal" / "current"
 REPORT_DIR = ROOT / "reports" / "market_dashboard_signal_research" / "flow_model"
 PREDICTIONS_PATH = OUTPUT_DIR / "dashboard_axis_flow_model_predictions_current.csv"
 SCORECARD_PATH = OUTPUT_DIR / "dashboard_axis_flow_model_scorecard_current.csv"
 LABEL_ORDER = ["down", "sideways", "up"]
+INVESTABLE_SCOPES = ["KOSPI", "KOSDAQ", "KOSPI200"]
 
 
 def _now_iso() -> str:
@@ -170,13 +171,15 @@ def _grid_search_thresholds(train: pd.DataFrame) -> dict[str, float]:
     return best
 
 
-def run_tuning() -> dict:
+def run_tuning(scopes: list[str] | None = None) -> dict:
+    scopes = scopes or INVESTABLE_SCOPES
     if not PREDICTIONS_PATH.exists():
         raise FileNotFoundError(f"missing predictions: {PREDICTIONS_PATH}")
     predictions = pd.read_csv(PREDICTIONS_PATH)
     predictions = predictions[
         predictions["label_policy"].isin(["q2020", "vol_adjusted_q2020", "vol_adjusted_wide_q2020", "existing"])
     ].copy()
+    predictions = predictions[predictions["market_scope"].isin(scopes)].copy()
     ensemble = _build_ensemble_predictions(predictions)
     all_predictions = pd.concat([predictions, ensemble], ignore_index=True)
     all_predictions["argmax_label"] = _argmax_label(all_predictions)
@@ -266,6 +269,8 @@ def run_tuning() -> dict:
         "status": "ok",
         "generated_at": _now_iso(),
         "source_predictions": str(PREDICTIONS_PATH),
+        "scope_policy": "investable_only",
+        "scopes": scopes,
         "row_counts": {
             "input_predictions": int(predictions.shape[0]),
             "ensemble_predictions": int(ensemble.shape[0]),
@@ -288,12 +293,19 @@ def run_tuning() -> dict:
 
 
 def parse_args() -> argparse.Namespace:
-    return argparse.ArgumentParser(description="Tune market/scope-specific flow model probability thresholds.").parse_args()
+    parser = argparse.ArgumentParser(description="Tune market/scope-specific flow model probability thresholds.")
+    parser.add_argument(
+        "--scopes",
+        default=",".join(INVESTABLE_SCOPES),
+        help="Comma-separated market scopes. Default excludes ALL.",
+    )
+    return parser.parse_args()
 
 
 def main() -> None:
-    parse_args()
-    print(json.dumps(run_tuning(), ensure_ascii=True, indent=2))
+    args = parse_args()
+    scopes = [item.strip() for item in args.scopes.split(",") if item.strip()]
+    print(json.dumps(run_tuning(scopes=scopes), ensure_ascii=True, indent=2))
 
 
 if __name__ == "__main__":
