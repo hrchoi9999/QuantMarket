@@ -350,6 +350,7 @@ def _read_index_returns(source_db: Path) -> pd.DataFrame:
             FROM market_index_daily
             WHERE market = 'KR'
               AND index_code IN ('1001', '2001', '1028')
+              AND source != 'sample_seed'
             ORDER BY index_code, date
             """
         ).fetchall()

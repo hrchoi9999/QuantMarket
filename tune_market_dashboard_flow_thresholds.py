@@ -6,6 +6,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent
@@ -43,14 +44,57 @@ def _threshold_label(frame: pd.DataFrame, down_threshold: float, up_threshold: f
 
 
 def _metrics(actual: pd.Series, pred: pd.Series) -> dict[str, float]:
-    from sklearn.metrics import accuracy_score, balanced_accuracy_score, f1_score
-
+    actual_values = actual.astype(str).to_numpy()
+    pred_values = pred.astype(str).to_numpy()
+    accuracy = float((actual_values == pred_values).mean()) if actual_values.size else 0.0
+    recalls = []
+    f1_scores = []
+    for label in LABEL_ORDER:
+        actual_mask = actual_values == label
+        pred_mask = pred_values == label
+        tp = float((actual_mask & pred_mask).sum())
+        fp = float((~actual_mask & pred_mask).sum())
+        fn = float((actual_mask & ~pred_mask).sum())
+        support = float(actual_mask.sum())
+        if support > 0:
+            recalls.append(tp / support)
+        denom = (2.0 * tp) + fp + fn
+        f1_scores.append((2.0 * tp / denom) if denom > 0 else 0.0)
     baseline = actual.mode().iloc[0]
     return {
-        "accuracy": float(accuracy_score(actual, pred)),
-        "balanced_accuracy": float(balanced_accuracy_score(actual, pred)),
-        "macro_f1": float(f1_score(actual, pred, average="macro")),
-        "baseline_accuracy": float(accuracy_score(actual, [baseline] * actual.shape[0])),
+        "accuracy": accuracy,
+        "balanced_accuracy": float(sum(recalls) / len(recalls)) if recalls else 0.0,
+        "macro_f1": float(sum(f1_scores) / len(f1_scores)) if f1_scores else 0.0,
+        "baseline_accuracy": float((actual_values == str(baseline)).mean()) if actual_values.size else 0.0,
+    }
+
+
+def _metrics_arrays(actual_values: np.ndarray, pred_values: np.ndarray) -> dict[str, float]:
+    accuracy = float((actual_values == pred_values).mean()) if actual_values.size else 0.0
+    recalls = []
+    f1_scores = []
+    for label in LABEL_ORDER:
+        actual_mask = actual_values == label
+        pred_mask = pred_values == label
+        tp = float((actual_mask & pred_mask).sum())
+        fp = float((~actual_mask & pred_mask).sum())
+        fn = float((actual_mask & ~pred_mask).sum())
+        support = float(actual_mask.sum())
+        if support > 0:
+            recalls.append(tp / support)
+        denom = (2.0 * tp) + fp + fn
+        f1_scores.append((2.0 * tp / denom) if denom > 0 else 0.0)
+    if actual_values.size:
+        values, counts = np.unique(actual_values, return_counts=True)
+        baseline = values[counts.argmax()]
+        baseline_accuracy = float((actual_values == baseline).mean())
+    else:
+        baseline_accuracy = 0.0
+    return {
+        "accuracy": accuracy,
+        "balanced_accuracy": float(sum(recalls) / len(recalls)) if recalls else 0.0,
+        "macro_f1": float(sum(f1_scores) / len(f1_scores)) if f1_scores else 0.0,
+        "baseline_accuracy": baseline_accuracy,
     }
 
 
@@ -89,10 +133,17 @@ def _build_ensemble_predictions(predictions: pd.DataFrame) -> pd.DataFrame:
 
 def _grid_search_thresholds(train: pd.DataFrame) -> dict[str, float]:
     best: dict[str, float] | None = None
+    actual = train["actual_label"].astype(str).to_numpy()
+    down = train["prob_down"].to_numpy(dtype=float)
+    up = train["prob_up"].to_numpy(dtype=float)
     for down_threshold in [x / 100 for x in range(34, 61, 2)]:
         for up_threshold in [x / 100 for x in range(34, 61, 2)]:
-            pred = _threshold_label(train, down_threshold, up_threshold)
-            met = _metrics(train["actual_label"], pred)
+            pred = np.full(actual.shape, "sideways", dtype=object)
+            down_mask = (down >= down_threshold) & (down >= up)
+            up_mask = (up >= up_threshold) & (up > down)
+            pred[down_mask] = "down"
+            pred[up_mask] = "up"
+            met = _metrics_arrays(actual, pred)
             row = {
                 "down_threshold": down_threshold,
                 "up_threshold": up_threshold,
