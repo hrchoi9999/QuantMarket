@@ -13,6 +13,7 @@ import pandas as pd
 
 os.environ.setdefault("LOKY_MAX_CPU_COUNT", "4")
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores.*")
+warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
 
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
@@ -24,8 +25,10 @@ from quantmarket_market.market_dashboard_signal_research import HORIZONS, SCOPES
 DATASET_PATH = ROOT / "service_platform" / "research" / "market_dashboard_signal" / "current" / "dashboard_axis_model_dataset_current.csv"
 OUTPUT_DIR = ROOT / "service_platform" / "research" / "market_dashboard_signal" / "current"
 REPORT_DIR = ROOT / "reports" / "market_dashboard_signal_research" / "flow_model"
-MODELS = ["logistic", "hist_gradient_boosting", "random_forest", "extra_trees"]
-LABEL_POLICIES = ["existing", "q2020", "vol_adjusted_q2020"]
+MODELS = ["logistic", "logistic_calibrated", "hist_gradient_boosting", "random_forest", "extra_trees"]
+LABEL_POLICIES = ["existing", "q2020", "vol_adjusted_q2020", "vol_adjusted_wide_q2020"]
+MIN_TEST_YEAR = 2022
+MIN_TRAIN_COUNT = 400
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,60 @@ def _feature_columns(dataset: pd.DataFrame) -> list[str]:
     return cols
 
 
+def _add_flow_enhanced_features(dataset: pd.DataFrame) -> pd.DataFrame:
+    frame = dataset.copy()
+    frame = frame.sort_values(["market_scope", "asof_date"]).reset_index(drop=True)
+    flow_cols = [
+        "flow_foreign_net_eok",
+        "flow_institution_net_eok",
+        "flow_individual_net_eok",
+        "flow_smart_money_net_eok",
+        "flow_foreign_minus_individual_eok",
+        "flow_institution_minus_individual_eok",
+        "flow_foreign_net_eok_5d_sum",
+        "flow_institution_net_eok_5d_sum",
+        "flow_individual_net_eok_5d_sum",
+        "flow_smart_money_net_eok_5d_sum",
+        "kiwoom_foreign_net_eok",
+        "kiwoom_institution_net_eok",
+        "kiwoom_individual_net_eok",
+        "kiwoom_smart_money_net_eok",
+        "kiwoom_foreign_minus_individual_eok",
+        "kiwoom_foreign_net_eok_5d_sum",
+        "kiwoom_institution_net_eok_5d_sum",
+        "kiwoom_individual_net_eok_5d_sum",
+        "kiwoom_smart_money_net_eok_5d_sum",
+        "kiwoom_individual_positive_ratio",
+        "kiwoom_foreign_positive_ratio",
+        "kiwoom_institution_positive_ratio",
+    ]
+    flow_cols = [col for col in flow_cols if col in frame.columns]
+    for col in flow_cols:
+        values = pd.to_numeric(frame[col], errors="coerce")
+        frame[col] = values
+        grouped = frame.groupby("market_scope", sort=False)[col]
+        for window in (20, 60):
+            mean = grouped.transform(lambda s: s.rolling(window, min_periods=max(10, window // 2)).mean())
+            std = grouped.transform(lambda s: s.rolling(window, min_periods=max(10, window // 2)).std())
+            frame[f"{col}_z{window}d"] = (values - mean) / std.replace({0: pd.NA})
+        frame[f"{col}_pctile_60d"] = grouped.transform(
+            lambda s: s.rolling(60, min_periods=20).apply(
+                lambda x: pd.Series(x).rank(pct=True).iloc[-1],
+                raw=False,
+            )
+        )
+
+    pairs = [
+        ("flow_smart_money_net_eok_5d_sum_z60d", "flow_individual_net_eok_5d_sum_z60d", "flow_smart_vs_individual_z60d"),
+        ("kiwoom_smart_money_net_eok_5d_sum_z60d", "kiwoom_individual_net_eok_5d_sum_z60d", "kiwoom_smart_vs_individual_z60d"),
+        ("kiwoom_foreign_positive_ratio_z60d", "kiwoom_individual_positive_ratio_z60d", "kiwoom_foreign_vs_individual_breadth_z60d"),
+    ]
+    for left, right, out in pairs:
+        if left in frame.columns and right in frame.columns:
+            frame[out] = frame[left] - frame[right]
+    return frame
+
+
 def _usable_features(frame: pd.DataFrame, feature_cols: list[str], *, min_observed: int = 30) -> list[str]:
     usable = []
     for col in feature_cols:
@@ -60,9 +117,11 @@ def _usable_features(frame: pd.DataFrame, feature_cols: list[str], *, min_observ
 
 
 def _model_pipeline(model_name: str):
+    from sklearn.calibration import CalibratedClassifierCV
     from sklearn.ensemble import ExtraTreesClassifier, HistGradientBoostingClassifier, RandomForestClassifier
     from sklearn.impute import SimpleImputer
     from sklearn.linear_model import LogisticRegression
+    from sklearn.model_selection import TimeSeriesSplit
     from sklearn.pipeline import make_pipeline
     from sklearn.preprocessing import StandardScaler
 
@@ -71,6 +130,17 @@ def _model_pipeline(model_name: str):
             SimpleImputer(strategy="median"),
             StandardScaler(),
             LogisticRegression(max_iter=2000, class_weight="balanced", random_state=42),
+        )
+    if model_name == "logistic_calibrated":
+        base = make_pipeline(
+            SimpleImputer(strategy="median"),
+            StandardScaler(),
+            LogisticRegression(max_iter=2000, class_weight="balanced", random_state=42),
+        )
+        return CalibratedClassifierCV(
+            estimator=base,
+            method="sigmoid",
+            cv=TimeSeriesSplit(n_splits=3),
         )
     if model_name == "hist_gradient_boosting":
         return make_pipeline(
@@ -123,7 +193,7 @@ def _apply_label_policy(dataset: pd.DataFrame, policy: str, scopes: list[str], h
                 continue
 
             returns = pd.to_numeric(frame.loc[scope_mask, f"forward_return_{horizon}d"], errors="coerce")
-            if policy == "vol_adjusted_q2020":
+            if policy in {"vol_adjusted_q2020", "vol_adjusted_wide_q2020"}:
                 vol = returns.rolling(252, min_periods=60).std().abs()
                 score = returns / vol.replace({0: pd.NA})
             elif policy == "q2020":
@@ -135,8 +205,9 @@ def _apply_label_policy(dataset: pd.DataFrame, policy: str, scopes: list[str], h
             if valid.empty:
                 frame.loc[scope_mask, label_col] = pd.NA
                 continue
-            q40 = float(valid.quantile(0.4))
-            q60 = float(valid.quantile(0.6))
+            lower_q, upper_q = (0.35, 0.65) if policy == "vol_adjusted_wide_q2020" else (0.4, 0.6)
+            q40 = float(valid.quantile(lower_q))
+            q60 = float(valid.quantile(upper_q))
             labels = pd.Series(pd.NA, index=score.index, dtype="object")
             labels.loc[score <= q40] = "down"
             labels.loc[(score > q40) & (score <= q60)] = "sideways"
@@ -163,7 +234,7 @@ def _evaluate_single_models(
     pred_rows: list[dict] = []
     for scope in scopes:
         scoped = frame[frame["market_scope"] == scope].sort_values("asof_date")
-        years = [int(year) for year in sorted(scoped["year"].dropna().unique()) if int(year) >= 2021]
+        years = [int(year) for year in sorted(scoped["year"].dropna().unique()) if int(year) >= MIN_TEST_YEAR]
         for horizon in horizons:
             label_col = f"flow_label_{label_policy}_{horizon}d"
             for test_year in years:
@@ -320,6 +391,7 @@ def run_research(min_asof_date: str, label_policies: list[str], scopes: list[str
     dataset = pd.read_csv(DATASET_PATH)
     dataset["asof_date"] = pd.to_datetime(dataset["asof_date"]).dt.strftime("%Y-%m-%d")
     dataset = dataset[dataset["asof_date"] >= min_asof_date].copy()
+    dataset = _add_flow_enhanced_features(dataset)
     all_metrics = []
     all_predictions = []
     for label_policy in label_policies:
@@ -330,7 +402,7 @@ def run_research(min_asof_date: str, label_policies: list[str], scopes: list[str
             scopes=scopes,
             horizons=horizons,
             models=MODELS,
-            min_train_count=180,
+            min_train_count=MIN_TRAIN_COUNT,
         )
         single = pd.DataFrame(result.rows)
         ensemble = _ensemble_metrics(single, result.predictions)
@@ -356,6 +428,8 @@ def run_research(min_asof_date: str, label_policies: list[str], scopes: list[str
         "scopes": scopes,
         "horizons": [f"{h}d" for h in horizons],
         "models": MODELS,
+        "min_test_year": MIN_TEST_YEAR,
+        "min_train_count": MIN_TRAIN_COUNT,
         "dataset_rows": int(dataset.shape[0]),
         "row_counts": {
             "walk_forward": int(metrics.shape[0]),

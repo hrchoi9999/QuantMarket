@@ -21,9 +21,12 @@ if str(SRC) not in sys.path:
 from run_market_dashboard_flow_model_research import (  # noqa: E402
     DATASET_PATH,
     HORIZONS,
+    MIN_TEST_YEAR,
+    MIN_TRAIN_COUNT,
     OUTPUT_DIR,
     REPORT_DIR,
     SCOPES,
+    _add_flow_enhanced_features,
     _apply_label_policy,
     _feature_columns,
     _model_pipeline,
@@ -31,7 +34,7 @@ from run_market_dashboard_flow_model_research import (  # noqa: E402
 )
 
 LABEL_POLICY = "vol_adjusted_q2020"
-MODEL_NAME = "logistic"
+MODEL_NAMES = ["logistic", "logistic_calibrated"]
 
 
 def _now_iso() -> str:
@@ -55,7 +58,7 @@ def _fit_logistic_analysis(dataset: pd.DataFrame, *, scopes: list[str], horizons
 
     for scope in scopes:
         scoped = frame[frame["market_scope"] == scope].sort_values("asof_date")
-        years = [int(year) for year in sorted(scoped["year"].dropna().unique()) if int(year) >= 2021]
+        years = [int(year) for year in sorted(scoped["year"].dropna().unique()) if int(year) >= MIN_TEST_YEAR]
         for horizon in horizons:
             label_col = f"flow_label_{LABEL_POLICY}_{horizon}d"
             for test_year in years:
@@ -63,92 +66,97 @@ def _fit_logistic_analysis(dataset: pd.DataFrame, *, scopes: list[str], horizons
                 test = scoped[(scoped["year"] == test_year) & scoped[label_col].notna()].copy()
                 train = train[train[feature_cols].notna().any(axis=1)]
                 test = test[test[feature_cols].notna().any(axis=1)]
-                if train.shape[0] < 180 or test.shape[0] < 30 or train[label_col].nunique() < 3:
+                if train.shape[0] < MIN_TRAIN_COUNT or test.shape[0] < 30 or train[label_col].nunique() < 3:
                     continue
                 usable = _usable_features(train, feature_cols)
                 if not usable:
                     continue
-                model = _model_pipeline(MODEL_NAME)
-                model.fit(train[usable], train[label_col])
-                pred = model.predict(test[usable])
-                probs = model.predict_proba(test[usable])
-                baseline = test[label_col].mode().iloc[0]
-                metric_rows.append(
-                    {
-                        "model": MODEL_NAME,
-                        "label_policy": LABEL_POLICY,
-                        "market_scope": scope,
-                        "forecast_horizon": f"{horizon}d",
-                        "test_year": test_year,
-                        "train_start": train["asof_date"].min(),
-                        "train_end": train["asof_date"].max(),
-                        "test_start": test["asof_date"].min(),
-                        "test_end": test["asof_date"].max(),
-                        "train_count": int(train.shape[0]),
-                        "test_count": int(test.shape[0]),
-                        "feature_count": int(len(usable)),
-                        "accuracy": float(accuracy_score(test[label_col], pred)),
-                        "balanced_accuracy": float(balanced_accuracy_score(test[label_col], pred)),
-                        "macro_f1": float(f1_score(test[label_col], pred, average="macro")),
-                        "baseline_accuracy": float(accuracy_score(test[label_col], [baseline] * test.shape[0])),
-                    }
-                )
-                labels = [str(label) for label in model.classes_]
-                classifier = model.named_steps["logisticregression"]
-                coef = classifier.coef_
-                for class_idx, label in enumerate(labels):
-                    for feature, value in zip(usable, coef[class_idx]):
-                        importance_rows.append(
-                            {
-                                "market_scope": scope,
-                                "forecast_horizon": f"{horizon}d",
-                                "test_year": test_year,
-                                "class_label": label,
-                                "feature": feature,
-                                "coefficient": float(value),
-                                "abs_coefficient": abs(float(value)),
-                            }
-                        )
-                matrix = confusion_matrix(test[label_col], pred, labels=["down", "sideways", "up"])
-                for actual_idx, actual in enumerate(["down", "sideways", "up"]):
-                    for pred_idx, predicted in enumerate(["down", "sideways", "up"]):
-                        confusion_rows.append(
-                            {
-                                "market_scope": scope,
-                                "forecast_horizon": f"{horizon}d",
-                                "test_year": test_year,
-                                "actual_label": actual,
-                                "predicted_label": predicted,
-                                "count": int(matrix[actual_idx, pred_idx]),
-                            }
-                        )
-                class_index = {str(label): i for i, label in enumerate(model.classes_)}
-                for pos, (_, test_row) in enumerate(test.iterrows()):
-                    prob = {
-                        "down": float(probs[pos][class_index.get("down", -1)]) if "down" in class_index else 0.0,
-                        "sideways": float(probs[pos][class_index.get("sideways", -1)]) if "sideways" in class_index else 0.0,
-                        "up": float(probs[pos][class_index.get("up", -1)]) if "up" in class_index else 0.0,
-                    }
-                    predicted = str(pred[pos])
-                    actual = str(test_row[label_col])
-                    prediction_rows.append(
+                for model_name in MODEL_NAMES:
+                    model = _model_pipeline(model_name)
+                    model.fit(train[usable], train[label_col])
+                    pred = model.predict(test[usable])
+                    probs = model.predict_proba(test[usable])
+                    baseline = test[label_col].mode().iloc[0]
+                    metric_rows.append(
                         {
+                            "model": model_name,
+                            "label_policy": LABEL_POLICY,
                             "market_scope": scope,
                             "forecast_horizon": f"{horizon}d",
                             "test_year": test_year,
-                            "asof_date": test_row["asof_date"],
-                            "actual_label": actual,
-                            "predicted_label": predicted,
-                            "is_correct": int(actual == predicted),
-                            "prob_down": prob["down"],
-                            "prob_sideways": prob["sideways"],
-                            "prob_up": prob["up"],
-                            "predicted_probability": prob[predicted],
-                            "actual_probability": prob[actual],
-                            "confidence_gap": prob[predicted] - prob[actual],
-                            "forward_return": test_row.get(f"forward_return_{horizon}d"),
+                            "train_start": train["asof_date"].min(),
+                            "train_end": train["asof_date"].max(),
+                            "test_start": test["asof_date"].min(),
+                            "test_end": test["asof_date"].max(),
+                            "train_count": int(train.shape[0]),
+                            "test_count": int(test.shape[0]),
+                            "feature_count": int(len(usable)),
+                            "accuracy": float(accuracy_score(test[label_col], pred)),
+                            "balanced_accuracy": float(balanced_accuracy_score(test[label_col], pred)),
+                            "macro_f1": float(f1_score(test[label_col], pred, average="macro")),
+                            "baseline_accuracy": float(accuracy_score(test[label_col], [baseline] * test.shape[0])),
                         }
                     )
+                    if model_name == "logistic":
+                        labels = [str(label) for label in model.classes_]
+                        classifier = model.named_steps["logisticregression"]
+                        coef = classifier.coef_
+                        for class_idx, label in enumerate(labels):
+                            for feature, value in zip(usable, coef[class_idx]):
+                                importance_rows.append(
+                                    {
+                                        "model": model_name,
+                                        "market_scope": scope,
+                                        "forecast_horizon": f"{horizon}d",
+                                        "test_year": test_year,
+                                        "class_label": label,
+                                        "feature": feature,
+                                        "coefficient": float(value),
+                                        "abs_coefficient": abs(float(value)),
+                                    }
+                                )
+                    matrix = confusion_matrix(test[label_col], pred, labels=["down", "sideways", "up"])
+                    for actual_idx, actual in enumerate(["down", "sideways", "up"]):
+                        for pred_idx, predicted in enumerate(["down", "sideways", "up"]):
+                            confusion_rows.append(
+                                {
+                                    "model": model_name,
+                                    "market_scope": scope,
+                                    "forecast_horizon": f"{horizon}d",
+                                    "test_year": test_year,
+                                    "actual_label": actual,
+                                    "predicted_label": predicted,
+                                    "count": int(matrix[actual_idx, pred_idx]),
+                                }
+                            )
+                    class_index = {str(label): i for i, label in enumerate(model.classes_)}
+                    for pos, (_, test_row) in enumerate(test.iterrows()):
+                        prob = {
+                            "down": float(probs[pos][class_index.get("down", -1)]) if "down" in class_index else 0.0,
+                            "sideways": float(probs[pos][class_index.get("sideways", -1)]) if "sideways" in class_index else 0.0,
+                            "up": float(probs[pos][class_index.get("up", -1)]) if "up" in class_index else 0.0,
+                        }
+                        predicted = str(pred[pos])
+                        actual = str(test_row[label_col])
+                        prediction_rows.append(
+                            {
+                                "model": model_name,
+                                "market_scope": scope,
+                                "forecast_horizon": f"{horizon}d",
+                                "test_year": test_year,
+                                "asof_date": test_row["asof_date"],
+                                "actual_label": actual,
+                                "predicted_label": predicted,
+                                "is_correct": int(actual == predicted),
+                                "prob_down": prob["down"],
+                                "prob_sideways": prob["sideways"],
+                                "prob_up": prob["up"],
+                                "predicted_probability": prob[predicted],
+                                "actual_probability": prob[actual],
+                                "confidence_gap": prob[predicted] - prob[actual],
+                                "forward_return": test_row.get(f"forward_return_{horizon}d"),
+                            }
+                        )
     return (
         pd.DataFrame(metric_rows),
         pd.DataFrame(importance_rows),
@@ -161,7 +169,7 @@ def _summarize_importance(importance: pd.DataFrame) -> pd.DataFrame:
     if importance.empty:
         return pd.DataFrame()
     return (
-        importance.groupby(["market_scope", "forecast_horizon", "class_label", "feature"], as_index=False)
+        importance.groupby(["model", "market_scope", "forecast_horizon", "class_label", "feature"], as_index=False)
         .agg(
             mean_coefficient=("coefficient", "mean"),
             mean_abs_coefficient=("abs_coefficient", "mean"),
@@ -180,7 +188,7 @@ def _summarize_errors(predictions: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataF
     if predictions.empty:
         return pd.DataFrame(), pd.DataFrame()
     summary = (
-        predictions.groupby(["market_scope", "forecast_horizon", "test_year"], as_index=False)
+        predictions.groupby(["model", "market_scope", "forecast_horizon", "test_year"], as_index=False)
         .agg(
             rows=("is_correct", "count"),
             accuracy=("is_correct", "mean"),
@@ -198,6 +206,7 @@ def run_analysis(min_asof_date: str) -> dict:
     dataset = pd.read_csv(DATASET_PATH)
     dataset["asof_date"] = pd.to_datetime(dataset["asof_date"]).dt.strftime("%Y-%m-%d")
     dataset = dataset[dataset["asof_date"] >= min_asof_date].copy()
+    dataset = _add_flow_enhanced_features(dataset)
     dataset = _apply_label_policy(dataset, LABEL_POLICY, SCOPES, HORIZONS)
     metrics, importance, confusion, predictions = _fit_logistic_analysis(dataset, scopes=SCOPES, horizons=HORIZONS)
     importance_summary = _summarize_importance(importance)
@@ -224,8 +233,10 @@ def run_analysis(min_asof_date: str) -> dict:
     summary = {
         "status": "ok",
         "generated_at": _now_iso(),
-        "model": MODEL_NAME,
+        "models": MODEL_NAMES,
         "label_policy": LABEL_POLICY,
+        "min_test_year": MIN_TEST_YEAR,
+        "min_train_count": MIN_TRAIN_COUNT,
         "min_asof_date": min_asof_date,
         "dataset_rows": int(dataset.shape[0]),
         "row_counts": {
