@@ -238,8 +238,9 @@ powershell.exe -ExecutionPolicy Bypass -File "D:\QuantBackup\QuantMarket\backup_
 - 평균 실행 시간: 약 2분
 - 중복 실행 허용 여부: 불허
 - 보존 정책:
-  - 현재 자동 삭제 정책 없음
-  - 통합 시 최근 30일 또는 최근 30개 보존 정책 권장
+  - 폴더형 백업은 보존하지 않음
+  - 최신 `QuantMarket_YYYYMMDD_HHMMSS.zip` 1개와 최신 `QuantMarket_git_YYYYMMDD_HHMMSS.bundle` 1개만 보존
+  - 새 백업 생성 후 이전 zip/bundle 및 이전 백업 폴더는 삭제
 
 ## 3. 최종 산출물 요구사항
 
@@ -299,8 +300,8 @@ powershell.exe -ExecutionPolicy Bypass -File "D:\QuantBackup\QuantMarket\backup_
   - latest backup이 24시간 이내
   - `git_bundle_created=True`
 - 보존 기간:
-  - 현재 제한 없음
-  - 허브 이관 시 최근 30일 또는 최근 30개 보존 정책 권장
+  - 최신 압축 백업 1세트만 보존
+  - 폴더형 백업은 보존하지 않음
 - 후속 소비 쓰레드: 복구/운영관리 쓰레드
 - 후속 소비 방식: 수동 복구 또는 git bundle restore
 
