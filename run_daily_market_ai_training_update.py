@@ -16,6 +16,7 @@ KST = timezone(timedelta(hours=9))
 
 STEPS = [
     "collect_treasury_yield_curve.py",
+    "collect_fred_global_data.py",
     "collect_bls_global_data.py",
     "collect_bea_global_data.py",
     "collect_eia_global_data.py",
