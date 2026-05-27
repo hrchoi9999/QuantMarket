@@ -1,0 +1,29 @@
+{
+  "status": "ok",
+  "release_stage": "research_beta",
+  "production_ready": true,
+  "asof_date": "2026-05-22",
+  "latest_asof_date": "2026-05-22",
+  "generated_at": "2026-05-27T13:11:02+09:00",
+  "source": {
+    "dataset": "D:\\QuantMarket\\service_platform\\research\\market_dashboard_signal\\current\\dashboard_axis_model_dataset_current.csv",
+    "best_rules": "D:\\QuantMarket\\service_platform\\research\\market_dashboard_signal\\current\\dashboard_axis_flow_backtest_rule_tuning_best_current.csv",
+    "thresholds": "D:\\QuantMarket\\service_platform\\research\\market_dashboard_signal\\current\\dashboard_axis_flow_threshold_tuning_thresholds_current.csv",
+    "min_asof_date": "2020-01-02"
+  },
+  "quality": {
+    "ok": true,
+    "errors": [],
+    "warnings": [],
+    "asof_date": "2026-05-22",
+    "row_count": 12,
+    "market_count": 3,
+    "horizon_count": 4
+  },
+  "outputs": {
+    "signal_csv": "D:\\QuantMarket\\service_platform\\index_forecast_handoff\\current\\index_forecast_signal_current.csv",
+    "signal_json": "D:\\QuantMarket\\service_platform\\index_forecast_handoff\\current\\index_forecast_signal_current.json",
+    "quality_report": "D:\\QuantMarket\\service_platform\\index_forecast_handoff\\current\\index_forecast_signal_quality_report.json",
+    "schema": "D:\\QuantMarket\\service_platform\\index_forecast_handoff\\current\\index_forecast_signal_schema.json"
+  }
+}

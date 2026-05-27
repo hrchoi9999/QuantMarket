@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "primary_key": [
+    "asof_date",
+    "market_scope",
+    "forecast_horizon"
+  ],
+  "scope_policy": "investable_only",
+  "markets": [
+    "KOSPI",
+    "KOSDAQ",
+    "KOSPI200"
+  ],
+  "horizons": [
+    "5d",
+    "10d",
+    "20d",
+    "60d"
+  ],
+  "directions": [
+    "down",
+    "sideways",
+    "up"
+  ],
+  "exposure_range": [
+    0.0,
+    1.0
+  ]
+}
