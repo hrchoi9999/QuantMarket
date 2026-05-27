@@ -310,6 +310,9 @@ def _metric_row(group: pd.DataFrame, cost_bps: float) -> dict:
         "excess_cumulative_return": cum_return - buyhold_cum_return,
         "avg_exposure": float(group["exposure"].mean()),
         "avg_turnover": float(group["turnover"].mean()),
+        "low_confidence_ratio": float(group["low_confidence_ratio"].mean())
+        if "low_confidence_ratio" in group.columns
+        else 0.0,
         "up_signal_ratio": float((group["predicted_direction"] == "up").mean()),
         "sideways_signal_ratio": float((group["predicted_direction"] == "sideways").mean()),
         "down_signal_ratio": float((group["predicted_direction"] == "down").mean()),

@@ -4,7 +4,7 @@
   "production_ready": true,
   "asof_date": "2026-05-27",
   "latest_asof_date": "2026-05-27",
-  "generated_at": "2026-05-27T19:20:09+09:00",
+  "generated_at": "2026-05-27T19:39:23+09:00",
   "source": {
     "dataset": "D:\\QuantMarket\\service_platform\\research\\market_dashboard_signal\\current\\dashboard_axis_model_dataset_current.csv",
     "best_rules": "D:\\QuantMarket\\service_platform\\research\\market_dashboard_signal\\current\\dashboard_axis_flow_backtest_rule_tuning_best_current.csv",

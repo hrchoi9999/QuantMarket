@@ -33,7 +33,8 @@ RULE_PROFILES = {
     "cash_heavy_70_20_0": {"up": 0.7, "sideways": 0.2, "down": 0.0, "fallback": 0.2},
     "up_only_100_0_0": {"up": 1.0, "sideways": 0.0, "down": 0.0, "fallback": 0.0},
 }
-CONFIDENCE_FLOORS = [0.0, 0.45, 0.50, 0.55, 0.60]
+CONFIDENCE_FLOORS = [0.0, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60]
+SHARPE_NEAR_BEST_TOLERANCE = 0.05
 
 
 def _now_iso() -> str:
@@ -97,6 +98,7 @@ def _write_report(best: pd.DataFrame, path: Path) -> None:
         "buyhold_max_drawdown",
         "mdd_improvement",
         "avg_exposure",
+        "low_confidence_ratio",
     ]
     table = best[cols].copy()
     for col in [
@@ -110,6 +112,7 @@ def _write_report(best: pd.DataFrame, path: Path) -> None:
         "buyhold_max_drawdown",
         "mdd_improvement",
         "avg_exposure",
+        "low_confidence_ratio",
     ]:
         table[col] = table[col].map(lambda value: "" if pd.isna(value) else f"{float(value):.4f}")
     lines = [
@@ -118,7 +121,7 @@ def _write_report(best: pd.DataFrame, path: Path) -> None:
         f"- generated_at: {_now_iso()}",
         "- scope_policy: investable_only",
         "- markets: KOSPI, KOSDAQ, KOSPI200",
-        "- selection: best Sharpe per market/horizon, then lower MDD, then higher cumulative return",
+        f"- selection: lowest low-confidence fallback ratio among candidates within {SHARPE_NEAR_BEST_TOLERANCE:.2f} Sharpe of best, then higher Sharpe",
         "",
         "## Best Rules",
         "",
@@ -154,15 +157,18 @@ def run_rule_tuning(cost_bps: float, scopes: list[str] | None = None) -> dict:
 
     trades_frame = pd.concat(all_trades, ignore_index=True)
     scorecard = _add_relative_metrics(pd.concat(all_scorecards, ignore_index=True))
-    best = (
-        scorecard.sort_values(
-            ["market_scope", "forecast_horizon", "sharpe", "max_drawdown", "cumulative_return"],
-            ascending=[True, True, False, False, False],
-        )
-        .groupby(["market_scope", "forecast_horizon"], as_index=False)
-        .head(1)
-        .sort_values(["forecast_horizon", "market_scope"])
-    )
+    best_rows = []
+    for _, group in scorecard.groupby(["market_scope", "forecast_horizon"], dropna=False):
+        best_sharpe = float(group["sharpe"].max())
+        eligible = group[group["sharpe"] >= best_sharpe - SHARPE_NEAR_BEST_TOLERANCE].copy()
+        if eligible.empty:
+            eligible = group.copy()
+        selected = eligible.sort_values(
+            ["low_confidence_ratio", "sharpe", "max_drawdown", "cumulative_return"],
+            ascending=[True, False, False, False],
+        ).iloc[0]
+        best_rows.append(selected.to_dict())
+    best = pd.DataFrame(best_rows).sort_values(["forecast_horizon", "market_scope"])
 
     scorecard_path = OUTPUT_DIR / "dashboard_axis_flow_backtest_rule_tuning_scorecard_current.csv"
     best_path = OUTPUT_DIR / "dashboard_axis_flow_backtest_rule_tuning_best_current.csv"
@@ -184,6 +190,10 @@ def run_rule_tuning(cost_bps: float, scopes: list[str] | None = None) -> dict:
         "cost_bps": cost_bps,
         "rule_profiles": list(RULE_PROFILES),
         "confidence_floors": CONFIDENCE_FLOORS,
+        "selection_policy": {
+            "name": "near_best_sharpe_low_confidence_first",
+            "sharpe_near_best_tolerance": SHARPE_NEAR_BEST_TOLERANCE,
+        },
         "row_counts": {
             "candidate_set": int(candidates.shape[0]),
             "candidate_predictions": int(candidate_preds.shape[0]),

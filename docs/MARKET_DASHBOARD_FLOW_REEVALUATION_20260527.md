@@ -43,3 +43,20 @@ The full five-model run exceeded the 15 minute execution limit. This run uses th
 - 5d and 10d retain positive Sharpe lift but return capture remains low because selected rules are defensive.
 - 20d is mixed. KOSPI200 improves, but KOSPI and KOSDAQ remain weaker than buy-and-hold by Sharpe.
 - KOSDAQ remains the weakest market across horizons.
+
+## Low Confidence Fallback Improvement
+
+- updated_at: 2026-05-27 19:39 KST
+- selection_policy: choose the lowest low_confidence_ratio among rules within 0.05 Sharpe of the best rule, then prefer higher Sharpe, lower max drawdown, and higher cumulative return.
+- confidence_floor_grid: 0.00, 0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60
+- live_handoff_low_confidence_fallback: 6/12 -> 5/12
+- validation: `validate_index_forecast_handoff.py --expected-asof 2026-05-27` passed with `errors=[]`.
+
+| Horizon | Sharpe | B&H Sharpe | CumRet | B&H CumRet | LowConfRatio |
+|---:|---:|---:|---:|---:|---:|
+| 5d | 0.672 | 0.634 | 0.296 | 0.956 | 0.548 |
+| 10d | 0.787 | 0.707 | 0.391 | 1.063 | 0.289 |
+| 20d | 0.672 | 0.661 | 0.423 | 0.930 | 0.284 |
+| 60d | 1.142 | 0.770 | 0.792 | 0.883 | 0.088 |
+
+The adjustment reduces fallback frequency without forcing aggressive exposure changes. Remaining fallbacks are concentrated in short-horizon KOSPI/KOSPI200 and KOSDAQ 5d, so the next improvement should target probability calibration and market-specific confidence floors rather than lowering all floors mechanically.
