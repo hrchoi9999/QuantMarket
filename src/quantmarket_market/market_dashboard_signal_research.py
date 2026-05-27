@@ -406,7 +406,13 @@ def _label_to_3class(label: str | None) -> str | None:
 
 
 def _build_dataset(features: pd.DataFrame, targets: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    dataset = features.merge(targets, on="asof_date", how="inner")
+    scope_frame = pd.DataFrame({"market_scope": SCOPES})
+    scaffold = features[["asof_date"]].drop_duplicates().merge(scope_frame, how="cross")
+    dataset = scaffold.merge(features, on="asof_date", how="left").merge(
+        targets,
+        on=["asof_date", "market_scope"],
+        how="left",
+    )
     thresholds = []
     for scope in SCOPES:
         scope_mask = dataset["market_scope"] == scope
