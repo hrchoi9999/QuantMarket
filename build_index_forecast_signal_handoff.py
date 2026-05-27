@@ -331,6 +331,35 @@ def build_handoff(min_asof_date: str, max_stale_days: int) -> dict:
         "horizons": ["5d", "10d", "20d", "60d"],
         "directions": LABELS,
         "exposure_range": [0.0, 1.0],
+        "release_stages": ["research_beta", "production"],
+        "required_columns": [
+            "asof_date",
+            "market_scope",
+            "forecast_horizon",
+            "label_policy",
+            "model_name",
+            "decision_method",
+            "predicted_direction",
+            "prob_down",
+            "prob_sideways",
+            "prob_up",
+            "confidence",
+            "rule_name",
+            "confidence_floor",
+            "recommended_exposure",
+            "model_status",
+            "release_stage",
+            "production_ready",
+        ],
+        "consumer_policy": {
+            "read_manifest_first": True,
+            "required_manifest_flags": {
+                "production_ready": True,
+                "quality.ok": True,
+                "quality.errors": [],
+            },
+            "validator": "D:\\QuantMarket\\validate_index_forecast_handoff.py",
+        },
     }
     schema_path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
     manifest = {

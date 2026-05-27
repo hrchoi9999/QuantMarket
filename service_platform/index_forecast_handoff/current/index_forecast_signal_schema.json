@@ -25,5 +25,37 @@
   "exposure_range": [
     0.0,
     1.0
-  ]
+  ],
+  "release_stages": [
+    "research_beta",
+    "production"
+  ],
+  "required_columns": [
+    "asof_date",
+    "market_scope",
+    "forecast_horizon",
+    "label_policy",
+    "model_name",
+    "decision_method",
+    "predicted_direction",
+    "prob_down",
+    "prob_sideways",
+    "prob_up",
+    "confidence",
+    "rule_name",
+    "confidence_floor",
+    "recommended_exposure",
+    "model_status",
+    "release_stage",
+    "production_ready"
+  ],
+  "consumer_policy": {
+    "read_manifest_first": true,
+    "required_manifest_flags": {
+      "production_ready": true,
+      "quality.ok": true,
+      "quality.errors": []
+    },
+    "validator": "D:\\QuantMarket\\validate_index_forecast_handoff.py"
+  }
 }
