@@ -55,7 +55,7 @@ def _apply_rule(candidate_predictions: pd.DataFrame, rule_name: str, profile: di
     frame.loc[low_confidence, "exposure"] = float(profile["fallback"])
     frame["rule_name"] = rule_name
     frame["confidence_floor"] = confidence_floor
-    frame["low_confidence_ratio"] = float(low_confidence.mean())
+    frame["low_confidence_ratio"] = low_confidence.astype(float)
     return frame
 
 
