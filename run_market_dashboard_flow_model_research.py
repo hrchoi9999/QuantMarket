@@ -14,6 +14,8 @@ import pandas as pd
 os.environ.setdefault("LOKY_MAX_CPU_COUNT", "4")
 warnings.filterwarnings("ignore", message="Could not find the number of physical cores.*")
 warnings.filterwarnings("ignore", category=pd.errors.PerformanceWarning)
+warnings.filterwarnings("ignore", message="y_pred contains classes not in y_true")
+warnings.filterwarnings("ignore", message="A single label was found in.*")
 
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
@@ -385,7 +387,13 @@ def _scorecard(metrics: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def run_research(min_asof_date: str, label_policies: list[str], scopes: list[str], horizons: list[int]) -> dict:
+def run_research(
+    min_asof_date: str,
+    label_policies: list[str],
+    scopes: list[str],
+    horizons: list[int],
+    models: list[str] | None = None,
+) -> dict:
     if not DATASET_PATH.exists():
         raise FileNotFoundError(f"dataset is missing: {DATASET_PATH}")
     dataset = pd.read_csv(DATASET_PATH)
@@ -394,6 +402,7 @@ def run_research(min_asof_date: str, label_policies: list[str], scopes: list[str
     dataset = _add_flow_enhanced_features(dataset)
     all_metrics = []
     all_predictions = []
+    models = models or MODELS
     for label_policy in label_policies:
         labeled = _apply_label_policy(dataset, label_policy, scopes, horizons)
         result = _evaluate_single_models(
@@ -401,7 +410,7 @@ def run_research(min_asof_date: str, label_policies: list[str], scopes: list[str
             label_policy=label_policy,
             scopes=scopes,
             horizons=horizons,
-            models=MODELS,
+            models=models,
             min_train_count=MIN_TRAIN_COUNT,
         )
         single = pd.DataFrame(result.rows)
@@ -427,7 +436,7 @@ def run_research(min_asof_date: str, label_policies: list[str], scopes: list[str
         "label_policies": label_policies,
         "scopes": scopes,
         "horizons": [f"{h}d" for h in horizons],
-        "models": MODELS,
+        "models": models,
         "min_test_year": MIN_TEST_YEAR,
         "min_train_count": MIN_TRAIN_COUNT,
         "dataset_rows": int(dataset.shape[0]),
@@ -455,6 +464,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--label-policy", action="append", choices=LABEL_POLICIES)
     parser.add_argument("--scope", action="append", choices=SCOPES)
     parser.add_argument("--horizon", action="append", type=int, choices=HORIZONS)
+    parser.add_argument("--model", action="append", choices=MODELS)
     return parser.parse_args()
 
 
@@ -465,6 +475,7 @@ def main() -> None:
         label_policies=args.label_policy or LABEL_POLICIES,
         scopes=args.scope or SCOPES,
         horizons=args.horizon or HORIZONS,
+        models=args.model or MODELS,
     )
     print(json.dumps(summary, ensure_ascii=True, indent=2))
 
