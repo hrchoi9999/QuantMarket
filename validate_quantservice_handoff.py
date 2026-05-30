@@ -35,45 +35,62 @@ def _load_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8-sig"))
 
 
-def main() -> None:
-    args = parse_args()
-    handoff_dir = Path(args.handoff_dir)
+def validate_quantservice_handoff(handoff_dir: Path) -> dict:
+    errors: list[str] = []
     if not handoff_dir.exists():
-        raise SystemExit(f"handoff directory does not exist: {handoff_dir}")
+        return {
+            "ok": False,
+            "handoff_dir": str(handoff_dir),
+            "errors": [f"handoff directory does not exist: {handoff_dir}"],
+        }
 
     payloads: dict[str, dict] = {}
     for filename, required_keys in REQUIRED_FILES.items():
         path = handoff_dir / filename
         if not path.exists():
-            raise SystemExit(f"missing handoff file: {path}")
-        payload = _load_json(path)
+            errors.append(f"missing handoff file: {path}")
+            continue
+        try:
+            payload = _load_json(path)
+        except Exception as exc:
+            errors.append(f"{filename}: invalid json: {type(exc).__name__}: {exc}")
+            continue
         payloads[filename] = payload
         for key in required_keys:
             if key not in payload:
-                raise SystemExit(f"{filename}: missing required key '{key}'")
+                errors.append(f"{filename}: missing required key '{key}'")
 
     asof_values = {payload.get("asof") for payload in payloads.values() if payload.get("asof")}
     market_values = {payload.get("market") for payload in payloads.values() if payload.get("market")}
     if len(asof_values) != 1:
-        raise SystemExit(f"inconsistent asof values: {sorted(asof_values)}")
+        errors.append(f"inconsistent asof values: {sorted(asof_values)}")
     if len(market_values) != 1:
-        raise SystemExit(f"inconsistent market values: {sorted(market_values)}")
+        errors.append(f"inconsistent market values: {sorted(market_values)}")
 
-    manifest = payloads["quantservice_market_manifest.json"]
+    manifest = payloads.get("quantservice_market_manifest.json") or {}
     files = manifest.get("files") or {}
     for key, filename in files.items():
         target = handoff_dir / filename
         if not target.exists():
-            raise SystemExit(f"manifest file mapping missing target: {key} -> {filename}")
+            errors.append(f"manifest file mapping missing target: {key} -> {filename}")
 
-    result = {
+    return {
+        "ok": not errors,
         "handoff_dir": str(handoff_dir),
-        "market": next(iter(market_values)),
-        "asof": next(iter(asof_values)),
+        "market": next(iter(market_values)) if len(market_values) == 1 else None,
+        "asof": next(iter(asof_values)) if len(asof_values) == 1 else None,
         "validated_files": sorted(REQUIRED_FILES),
         "slot_count": len(manifest.get("slot_files") or {}),
+        "errors": errors,
     }
+
+
+def main() -> None:
+    args = parse_args()
+    result = validate_quantservice_handoff(Path(args.handoff_dir))
     print(json.dumps(result, ensure_ascii=False, indent=2))
+    if not result["ok"]:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

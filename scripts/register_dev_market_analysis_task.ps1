@@ -7,11 +7,11 @@ param(
     [switch]$RemoteDryRun,
     [string]$QuantServiceTargetDir = "D:\QuantService\service_platform\web\public_data\market_analysis\current",
     [string]$RemoteProvider = "gcs",
-    [string]$RemoteGcsBucket = "",
-    [string]$RemoteBaseUrl = "",
+    [string]$RemoteGcsBucket = "quantservice-489808-market-analysis",
+    [string]$RemoteBaseUrl = "https://storage.googleapis.com/quantservice-489808-market-analysis/market_analysis/current",
     [string]$RemotePrefix = "market_analysis",
     [string]$RemoteAccessMode = "public",
-    [string]$RemoteCredentials = ""
+    [string]$RemoteCredentials = "D:\QuantService\data\gcp\quantmarket-handoff-uploader.json"
 )
 
 $root = "D:\QuantMarket"
@@ -41,11 +41,11 @@ if ($PublishRemote -and $SyncToQuantService) {
         $parts += "-PublishRemote"
         if ($RemoteDryRun) { $parts += "-RemoteDryRun" }
         if ($RemoteProvider -ne "gcs") { $parts += @("-RemoteProvider", "`"$RemoteProvider`"") }
-        if ($RemoteGcsBucket) { $parts += @("-RemoteGcsBucket", "`"$RemoteGcsBucket`"") }
-        if ($RemoteBaseUrl) { $parts += @("-RemoteBaseUrl", "`"$RemoteBaseUrl`"") }
+        if ($RemoteGcsBucket -ne "quantservice-489808-market-analysis") { $parts += @("-RemoteGcsBucket", "`"$RemoteGcsBucket`"") }
+        if ($RemoteBaseUrl -ne "https://storage.googleapis.com/quantservice-489808-market-analysis/market_analysis/current") { $parts += @("-RemoteBaseUrl", "`"$RemoteBaseUrl`"") }
         if ($RemotePrefix -ne "market_analysis") { $parts += @("-RemotePrefix", "`"$RemotePrefix`"") }
         if ($RemoteAccessMode -ne "public") { $parts += @("-RemoteAccessMode", "`"$RemoteAccessMode`"") }
-        if ($RemoteCredentials) { $parts += @("-RemoteCredentials", "`"$RemoteCredentials`"") }
+        if ($RemoteCredentials -ne "D:\QuantService\data\gcp\quantmarket-handoff-uploader.json") { $parts += @("-RemoteCredentials", "`"$RemoteCredentials`"") }
     }
     $taskCmd = ($parts -join " ")
 }

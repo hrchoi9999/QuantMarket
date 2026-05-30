@@ -28,6 +28,11 @@ QUANT_REGIME_DB_PATH = QUANT_DB_DIR / "regime.db"
 QUANTSERVICE_LOCAL_TARGET_DIR = Path(
     r"D:\QuantService\service_platform\web\public_data\market_analysis\current"
 )
+DEFAULT_REMOTE_GCS_BUCKET = "quantservice-489808-market-analysis"
+DEFAULT_REMOTE_BASE_URL = (
+    "https://storage.googleapis.com/quantservice-489808-market-analysis/market_analysis/current"
+)
+DEFAULT_REMOTE_CREDENTIALS_PATH = Path(r"D:\QuantService\data\gcp\quantmarket-handoff-uploader.json")
 
 REMOTE_PUBLISH_ENABLED = os.getenv("QUANTMARKET_REMOTE_PUBLISH_ENABLED", "").strip().lower() in {
     "1",
@@ -36,14 +41,14 @@ REMOTE_PUBLISH_ENABLED = os.getenv("QUANTMARKET_REMOTE_PUBLISH_ENABLED", "").str
     "on",
 }
 REMOTE_PUBLISH_PROVIDER = os.getenv("QUANTMARKET_REMOTE_PUBLISH_PROVIDER", "gcs").strip().lower() or "gcs"
-REMOTE_GCS_BUCKET = os.getenv("QUANTMARKET_REMOTE_GCS_BUCKET", "").strip()
-REMOTE_BASE_URL = os.getenv("QUANTMARKET_REMOTE_BASE_URL", "").strip()
+REMOTE_GCS_BUCKET = os.getenv("QUANTMARKET_REMOTE_GCS_BUCKET", DEFAULT_REMOTE_GCS_BUCKET).strip()
+REMOTE_BASE_URL = os.getenv("QUANTMARKET_REMOTE_BASE_URL", DEFAULT_REMOTE_BASE_URL).strip()
 REMOTE_PREFIX = os.getenv("QUANTMARKET_REMOTE_PREFIX", "market_analysis").strip().strip("/") or "market_analysis"
 REMOTE_ACCESS_MODE = os.getenv("QUANTMARKET_REMOTE_ACCESS_MODE", "public").strip().lower() or "public"
 REMOTE_CREDENTIALS_PATH = (
     Path(os.getenv("QUANTMARKET_GCP_CREDENTIALS", "")).expanduser()
     if os.getenv("QUANTMARKET_GCP_CREDENTIALS")
-    else None
+    else DEFAULT_REMOTE_CREDENTIALS_PATH
 )
 REMOTE_DRY_RUN = os.getenv("QUANTMARKET_REMOTE_DRY_RUN", "").strip().lower() in {
     "1",
