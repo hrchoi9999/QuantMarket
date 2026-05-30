@@ -1,20 +1,19 @@
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import subprocess
 import sys
-import argparse
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parent
 SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from quantmarket_market.quant_model_handoff import now_kst as _now_kst
-from quantmarket_market.quant_model_handoff import refresh_quant_model_handoff
+from quantmarket_market.quant_model_handoff import now_kst as _now_kst  # noqa: E402
+from quantmarket_market.quant_model_handoff import refresh_quant_model_handoff  # noqa: E402
 
 STEPS = [
     "collect_treasury_yield_curve.py",

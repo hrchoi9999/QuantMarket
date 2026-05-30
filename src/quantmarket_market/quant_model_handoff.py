@@ -8,7 +8,6 @@ from pathlib import Path
 
 from quantmarket_market.config import ROOT_DIR
 
-
 KST = timezone(timedelta(hours=9))
 
 HANDOFF_FILES = [

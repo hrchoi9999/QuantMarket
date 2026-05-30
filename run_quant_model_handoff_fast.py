@@ -10,9 +10,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from quantmarket_market.quant_model_handoff import now_kst, refresh_quant_model_handoff
-from validate_quant_model_handoff import validate_handoff
-
+from quantmarket_market.quant_model_handoff import now_kst, refresh_quant_model_handoff  # noqa: E402
+from validate_quant_model_handoff import validate_handoff  # noqa: E402
 
 FAILURE_MESSAGE = (
     "forecast/context outputs are not ready for expected_asof. "

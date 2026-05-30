@@ -6,7 +6,6 @@ import json
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent
 DEFAULT_HANDOFF_DIR = ROOT / "service_platform" / "quant_model_handoff" / "market_context" / "current"
 REQUIRED_SCOPES = ["ALL", "KOSPI", "KOSDAQ"]

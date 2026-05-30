@@ -21,7 +21,6 @@ from quantmarket_market.config import (  # noqa: E402
 from validate_quant_model_handoff import DEFAULT_HANDOFF_DIR, validate_handoff  # noqa: E402
 from validate_quantservice_handoff import validate_quantservice_handoff  # noqa: E402
 
-
 REMOTE_SMOKE_FILES = [
     "quantservice_market_manifest.json",
     "quantservice_market_today.json",
