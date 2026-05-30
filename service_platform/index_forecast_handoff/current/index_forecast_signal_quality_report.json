@@ -2,11 +2,11 @@
   "ok": true,
   "errors": [],
   "warnings": [
-    "daily_source_older_than_signal:KOSPI:2026-05-26",
-    "daily_source_older_than_signal:KOSDAQ:2026-05-26",
-    "daily_source_older_than_signal:KOSPI200:2026-05-26"
+    "daily_source_older_than_signal:KOSPI:2026-05-29",
+    "daily_source_older_than_signal:KOSDAQ:2026-05-29",
+    "daily_source_older_than_signal:KOSPI200:2026-05-29"
   ],
-  "asof_date": "2026-05-27",
+  "asof_date": "2026-05-30",
   "row_count": 12,
   "market_count": 3,
   "horizon_count": 4

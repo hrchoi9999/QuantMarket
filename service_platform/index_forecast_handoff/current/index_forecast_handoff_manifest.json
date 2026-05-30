@@ -2,9 +2,9 @@
   "status": "ok",
   "release_stage": "research_beta",
   "production_ready": true,
-  "asof_date": "2026-05-27",
-  "latest_asof_date": "2026-05-27",
-  "generated_at": "2026-05-27T20:39:23+09:00",
+  "asof_date": "2026-05-30",
+  "latest_asof_date": "2026-05-30",
+  "generated_at": "2026-05-30T21:51:53+09:00",
   "source": {
     "dataset": "D:\\QuantMarket\\service_platform\\research\\market_dashboard_signal\\current\\dashboard_axis_model_dataset_current.csv",
     "best_rules": "D:\\QuantMarket\\service_platform\\research\\market_dashboard_signal\\current\\dashboard_axis_flow_backtest_rule_tuning_best_current.csv",
@@ -15,11 +15,11 @@
     "ok": true,
     "errors": [],
     "warnings": [
-      "daily_source_older_than_signal:KOSPI:2026-05-26",
-      "daily_source_older_than_signal:KOSDAQ:2026-05-26",
-      "daily_source_older_than_signal:KOSPI200:2026-05-26"
+      "daily_source_older_than_signal:KOSPI:2026-05-29",
+      "daily_source_older_than_signal:KOSDAQ:2026-05-29",
+      "daily_source_older_than_signal:KOSPI200:2026-05-29"
     ],
-    "asof_date": "2026-05-27",
+    "asof_date": "2026-05-30",
     "row_count": 12,
     "market_count": 3,
     "horizon_count": 4

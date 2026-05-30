@@ -88,7 +88,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File D:\Quant
 - 작업 이름: QuantMarket intraday market snapshot and public briefing refresh
 - 작업 ID 또는 기존 자동실행 ID: `QuantMarket-Dev-Intraday`
 - 현재 상태: Ready
-- 실행 주기: 주중 10분 간격
+- 실행 주기: 주중 30분 간격
 - 실행 시간대: 월-금 09:00~15:40 KST
 - 실행 조건: 국내 장중, PC 켜짐, 네트워크 가능
 - 실행 명령:
@@ -142,7 +142,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File D:\Quant
 - 작업 이름: QuantMarket US/global live market environment refresh
 - 작업 ID 또는 기존 자동실행 ID: `QuantMarket-Dev-US-Live`
 - 현재 상태: Ready
-- 실행 주기: 주중 10분 간격
+- 실행 주기: 주중 30분 간격
 - 실행 시간대: 월-금 20:00~익일 06:00 KST
 - 실행 조건: 미국/글로벌 시장 시간대, PC 켜짐, 네트워크 가능
 - 실행 명령:
