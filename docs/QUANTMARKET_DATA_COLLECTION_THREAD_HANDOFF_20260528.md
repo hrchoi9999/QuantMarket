@@ -100,15 +100,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File D:\Quant
 
 ### 4. Quant 모델용 market_context handoff 갱신
 
-- 목적: Quant `model-run-only` 전에 필요한 시장분석 mart와 forecast handoff 갱신
+- 목적: Quant `model-run-only` 전에 필요한 확정 market context / forecast handoff 갱신
+- 원칙: 데이터수집 쓰레드는 이미 생성된 `current` 산출물만 복사/검증하며 AI 학습이나 calibration을 실행하지 않음
 - 실행:
 
 ```powershell
-D:\Quant\venv64\Scripts\python.exe D:\QuantMarket\run_daily_market_ai_training_update.py --expected-asof YYYY-MM-DD
+D:\Quant\venv64\Scripts\python.exe D:\QuantMarket\run_quant_model_handoff_fast.py --expected-asof YYYY-MM-DD
 ```
 
 - 주요 산출:
-  - `D:\QuantMarket\service_platform\ai_training\market_context\current`
   - `D:\QuantMarket\service_platform\quant_model_handoff\market_context\current`
 - 필수 검증:
 
@@ -122,6 +122,11 @@ D:\Quant\venv64\Scripts\python.exe D:\QuantMarket\validate_quant_model_handoff.p
   - `quant_model_handoff_manifest.json`의 `asof_date`, `latest_asof_date`가 expected asof와 일치
   - `status.production_ready = true`
   - `market_forecast_ai_calibrated_daily_current.csv`에 `forecast_horizon=20d`, `market_scope=ALL/KOSPI/KOSDAQ` 3개 row 존재
+  - 위 3개 row의 `predicted_forward_return` 값 존재
+
+- 정기 실행:
+  - `D:\QuantMarket\scripts\run_dev_market_analysis.ps1`의 마지막 단계에 포함됨
+  - 별도 지정이 없으면 `market_forecast_ai_calibrated_daily_current.csv`의 최신 `asof_date`를 expected asof로 사용
 
 ## 비정기/관리 작업
 
@@ -194,4 +199,3 @@ git status --short
 D:\Quant\venv64\Scripts\python.exe D:\QuantMarket\validate_market_analysis_pipeline.py
 D:\Quant\venv64\Scripts\python.exe D:\QuantMarket\validate_quant_model_handoff.py --expected-asof YYYY-MM-DD
 ```
-

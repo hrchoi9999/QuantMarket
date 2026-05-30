@@ -5,7 +5,12 @@ import json
 import sys
 from pathlib import Path
 
-from run_daily_market_ai_training_update import _now_kst, _refresh_handoff
+ROOT = Path(__file__).resolve().parent
+SRC = ROOT / "src"
+if str(SRC) not in sys.path:
+    sys.path.insert(0, str(SRC))
+
+from quantmarket_market.quant_model_handoff import now_kst, refresh_quant_model_handoff
 from validate_quant_model_handoff import validate_handoff
 
 
@@ -48,7 +53,7 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    generated_at = _now_kst()
+    generated_at = now_kst()
     report: dict = {
         "mode": "fast_handoff_only",
         "generated_at": generated_at,
@@ -57,7 +62,7 @@ def main() -> None:
     }
 
     try:
-        handoff = _refresh_handoff(generated_at=generated_at, expected_asof=args.expected_asof)
+        handoff = refresh_quant_model_handoff(generated_at=generated_at, expected_asof=args.expected_asof)
         validation = validate_handoff(Path(handoff["handoff_dir"]), expected_asof=args.expected_asof)
         ok = bool(validation["ok"])
         report.update(

@@ -11,7 +11,9 @@ param(
     [string]$RemoteBaseUrl = "",
     [string]$RemotePrefix = "market_analysis",
     [string]$RemoteAccessMode = "public",
-    [string]$RemoteCredentials = ""
+    [string]$RemoteCredentials = "",
+    [switch]$SkipQuantModelHandoff,
+    [string]$QuantModelHandoffExpectedAsof = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,6 +26,7 @@ $logPath = Join-Path $logDir "market_analysis_run_$timestamp.log"
 $asof = (Get-Date).ToString("yyyy-MM-ddTHH:00:00zzz")
 $scriptPath = Join-Path $root "run_market_analysis_pipeline.py"
 $syncScript = Join-Path $root "scripts\sync_market_analysis_to_quantservice.ps1"
+$quantModelHandoffScript = Join-Path $root "run_quant_model_handoff_fast.py"
 $lockRoot = Join-Path $logDir "locks"
 $lockDir = Join-Path $lockRoot "public_publish.lock"
 New-Item -ItemType Directory -Force -Path $lockRoot | Out-Null
@@ -74,6 +77,30 @@ if ($SyncToQuantService) {
     powershell -ExecutionPolicy Bypass -File $syncScript -TargetDir $QuantServiceTargetDir 2>&1 | Tee-Object -FilePath $logPath -Append
     if ($LASTEXITCODE -ne 0) {
         throw "QuantService sync failed with exit code $LASTEXITCODE"
+    }
+}
+
+if (-not $SkipQuantModelHandoff) {
+    $handoffExpectedAsof = $QuantModelHandoffExpectedAsof
+    if (-not $handoffExpectedAsof) {
+        $forecastPath = Join-Path $root "service_platform\ai_training\market_context\current\market_forecast_ai_calibrated_daily_current.csv"
+        if (-not (Test-Path -LiteralPath $forecastPath)) {
+            throw "Quant model handoff source forecast is missing: $forecastPath"
+        }
+        $latestForecastRow = Import-Csv -LiteralPath $forecastPath |
+            Where-Object { $_.asof_date } |
+            Sort-Object asof_date |
+            Select-Object -Last 1
+        if (-not $latestForecastRow) {
+            throw "Quant model handoff source forecast has no asof_date rows: $forecastPath"
+        }
+        $handoffExpectedAsof = $latestForecastRow.asof_date
+    }
+
+    "[$(Get-Date -Format s)] Refreshing Quant model handoff expected_asof=$handoffExpectedAsof" | Tee-Object -FilePath $logPath -Append
+    & $PythonExe $quantModelHandoffScript --expected-asof $handoffExpectedAsof 2>&1 | Tee-Object -FilePath $logPath -Append
+    if ($LASTEXITCODE -ne 0) {
+        throw "Quant model handoff fast refresh failed with exit code $LASTEXITCODE"
     }
 }
 
