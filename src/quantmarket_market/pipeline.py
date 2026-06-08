@@ -101,6 +101,65 @@ def _is_intraday_context_stale(intraday_context: dict | None, *, asof: str, max_
     return (asof_dt - intraday_dt).total_seconds() > max_age_minutes * 60
 
 
+def _attach_next_day_signal_test(composite: dict, next_day_preview: dict) -> None:
+    if not composite or not next_day_preview:
+        return
+    score = next_day_preview.get("preview_score")
+    reference_session = str(next_day_preview.get("reference_session") or "").strip()
+    if score is None or not reference_session:
+        return
+    try:
+        numeric_score = float(score)
+    except (TypeError, ValueError):
+        return
+    preview_label = str(next_day_preview.get("preview_label") or "익일 신호 테스트").strip()
+    position_pct = max(0.0, min(100.0, (numeric_score + 3.0) / 6.0 * 100.0))
+    signal = {
+        "enabled": True,
+        "label": "익일 신호 테스트",
+        "reference_session": reference_session,
+        "preview_label": preview_label,
+        "preview_score": round(numeric_score, 4),
+        "official_score_impact": False,
+        "experiment_status": next_day_preview.get("experiment_status") or "validation_required",
+    }
+    composite["next_day_signal_test"] = signal
+    chart = composite.get("composite_chart") if isinstance(composite.get("composite_chart"), dict) else {}
+    series = chart.get("series") if isinstance(chart.get("series"), list) else []
+    series = [item for item in series if item.get("series_id") != "next_day_signal_test"]
+    series.append(
+        {
+            "series_id": "next_day_signal_test",
+            "label": "익일 신호 테스트",
+            "description": "야간/장외 자산 흐름 기반 검증 전 실험값입니다. 정식 3축 점수에는 반영하지 않습니다.",
+            "color": "#7c3aed",
+            "points": [
+                {
+                    "date": reference_session,
+                    "value": round(numeric_score, 4),
+                    "label": "익일",
+                    "preview_label": preview_label,
+                    "official_score_impact": False,
+                }
+            ],
+            "latest_visual": {
+                "score": round(numeric_score, 4),
+                "position_pct": round(position_pct, 1),
+                "display_text": f"{numeric_score:+.2f}점, {preview_label}",
+                "band": {"label": "검증 전", "tone": "test", "color": "#7c3aed"},
+                "explain_text": "익일 신호 테스트용 보조 마커입니다.",
+            },
+        }
+    )
+    chart["series"] = series
+    composite["composite_chart"] = chart
+    rules = composite.get("interpretation_rules") if isinstance(composite.get("interpretation_rules"), list) else []
+    rule = "익일 신호 테스트는 야간/장외 스트레스 참고값이며 정식 3축 점수에는 반영하지 않습니다."
+    if rule not in rules:
+        rules.append(rule)
+    composite["interpretation_rules"] = rules
+
+
 def run_market_analysis_pipeline(
     *,
     market: str = "KR",
@@ -226,6 +285,20 @@ def run_market_analysis_pipeline(
             created_at=created_at,
         )
 
+        next_day_preview_outputs = build_next_day_preview_outputs(
+            con,
+            market=market,
+            asof=asof,
+            summary=summary,
+            detail=detail,
+            snapshot_dir=snapshot_dir,
+            handoff_dir=handoff_dir,
+        )
+        _attach_next_day_signal_test(market_state_composite, next_day_preview_outputs["preview"])
+        summary["market_state_composite"] = market_state_composite
+        detail["market_state_composite"] = market_state_composite
+        today_bridge["market_state_composite"] = market_state_composite
+
         quantservice_home = build_quantservice_home_payload(
             summary=summary,
             detail=detail,
@@ -276,15 +349,6 @@ def run_market_analysis_pipeline(
             timeline=public_timeline,
             asset_strength=public_asset_strength,
             state_transition=public_state_transition,
-        )
-        next_day_preview_outputs = build_next_day_preview_outputs(
-            con,
-            market=market,
-            asof=asof,
-            summary=summary,
-            detail=detail,
-            snapshot_dir=snapshot_dir,
-            handoff_dir=handoff_dir,
         )
         next_day_preview_history = build_next_day_preview_history_payload(
             con,
