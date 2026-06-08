@@ -145,82 +145,56 @@ def _attach_next_day_signal_test(composite: dict, next_day_preview: dict) -> Non
     composite["next_day_signal_test"] = signal
     chart = composite.get("composite_chart") if isinstance(composite.get("composite_chart"), dict) else {}
     series = chart.get("series") if isinstance(chart.get("series"), list) else []
-    test_series_ids = {
-        "next_day_signal_test",
-        "next_day_environment_signal_test",
-        "next_day_short_term_signal_test",
+
+    score_by_axis = {
+        "financial_environment": environment_score,
+        "short_term_market_condition": short_term_score,
     }
-    series = [item for item in series if item.get("series_id") not in test_series_ids]
-
-    def build_test_series(*, series_id: str, label: str, value: float, color: str, description: str) -> dict:
-        value = round(float(value), 4)
-        value_position_pct = max(0.0, min(100.0, (value + 3.0) / 6.0 * 100.0))
-        return {
-            "series_id": series_id,
-            "label": label,
-            "description": description,
-            "color": color,
-            "points": [
-                {
-                    "date": reference_session,
-                    "value": value,
-                    "label": "익일",
-                    "preview_label": preview_label,
-                    "official_score_impact": False,
-                }
-            ],
-            "latest_visual": {
-                "score": value,
-                "position_pct": round(value_position_pct, 1),
-                "display_text": f"{value:+.2f}점, {preview_label}",
-                "band": {"label": "검증 전", "tone": "test", "color": color},
-                "explain_text": "익일 신호 테스트용 보조 마커입니다.",
-            },
-        }
-
-    series.append(
-        build_test_series(
-            series_id="next_day_environment_signal_test",
-            label="익일 금융환경 테스트",
-            value=environment_score,
-            color="#0ea5e9",
-            description="글로벌 리스크와 환율 기반의 익일 금융시장 환경 실험값입니다.",
+    label_by_axis = {
+        "financial_environment": "익일 금융환경 테스트",
+        "short_term_market_condition": "익일 단기상황 테스트",
+    }
+    for item in series:
+        series_id = item.get("series_id")
+        if series_id not in score_by_axis:
+            continue
+        points = item.get("points") if isinstance(item.get("points"), list) else []
+        points = [point for point in points if point.get("date") != reference_session]
+        axis_score = round(float(score_by_axis[series_id]), 4)
+        points.append(
+            {
+                "date": reference_session,
+                "value": axis_score,
+                "label": "익일",
+                "point_role": "next_day_signal_test",
+                "display_label": label_by_axis[series_id],
+                "preview_label": preview_label,
+                "official_score_impact": False,
+                "experiment_status": signal["experiment_status"],
+                "date_tone": "muted",
+            }
         )
-    )
-    series.append(
-        build_test_series(
-            series_id="next_day_short_term_signal_test",
-            label="익일 단기상황 테스트",
-            value=short_term_score,
-            color="#f97316",
-            description="국내 야간선물, EWY, 미국 선물 기반의 익일 단기 시장상황 실험값입니다.",
-        )
-    )
-    series.append(
-        {
-            "series_id": "next_day_signal_test",
-            "label": "익일 신호 테스트",
-            "description": "야간/장외 자산 흐름 종합 검증 전 실험값입니다. 정식 3축 점수에는 반영하지 않습니다.",
-            "color": "#7c3aed",
-            "points": [
-                {
-                    "date": reference_session,
-                    "value": round(numeric_score, 4),
-                    "label": "익일",
-                    "preview_label": preview_label,
-                    "official_score_impact": False,
-                }
-            ],
-            "latest_visual": {
-                "score": round(numeric_score, 4),
-                "position_pct": round(position_pct, 1),
-                "display_text": f"{numeric_score:+.2f}점, {preview_label}",
-                "band": {"label": "검증 전", "tone": "test", "color": "#7c3aed"},
-                "explain_text": "익일 신호 테스트용 보조 마커입니다.",
-            },
+        item["points"] = points
+        item["next_day_signal_test"] = {
+            "enabled": True,
+            "reference_session": reference_session,
+            "label": label_by_axis[series_id],
+            "score": axis_score,
+            "preview_label": preview_label,
+            "official_score_impact": False,
         }
-    )
     chart["series"] = series
+    chart["next_day_signal_test"] = {
+        "enabled": True,
+        "reference_session": reference_session,
+        "date_label": f"{reference_session} 익일",
+        "date_tone": "muted",
+        "attached_axis_series": ["financial_environment", "short_term_market_condition"],
+        "summary_score": round(numeric_score, 4),
+        "environment_score": round(environment_score, 4),
+        "short_term_score": round(short_term_score, 4),
+        "official_score_impact": False,
+    }
     composite["composite_chart"] = chart
     rules = composite.get("interpretation_rules") if isinstance(composite.get("interpretation_rules"), list) else []
     rule = "익일 신호 테스트는 야간/장외 스트레스 참고값이며 정식 3축 점수에는 반영하지 않습니다."
