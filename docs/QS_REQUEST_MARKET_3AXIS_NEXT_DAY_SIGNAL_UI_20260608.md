@@ -34,9 +34,10 @@ QuantMarket에서 시장 현황판 3축 그래프 payload에 `익일 신호 테�
 현재 적용 축:
 
 - `financial_environment`: 익일 금융환경 테스트
+- `medium_term_model_outlook`: 익일 종합 신호 테스트
 - `short_term_market_condition`: 익일 단기상황 테스트
 
-`medium_term_model_outlook`은 정식 퀀트모델 전망축이므로 익일 테스트 포인트를 붙이지 않습니다.
+`medium_term_model_outlook`의 익일 포인트는 정식 퀀트모델 재학습/예측값이 아니라, 야간/장외 종합 신호를 퀀트모델 전망축과 비교하기 위한 테스트 포인트입니다.
 
 ## 요청 사항
 

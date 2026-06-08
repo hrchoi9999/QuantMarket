@@ -148,10 +148,12 @@ def _attach_next_day_signal_test(composite: dict, next_day_preview: dict) -> Non
 
     score_by_axis = {
         "financial_environment": environment_score,
+        "medium_term_model_outlook": numeric_score,
         "short_term_market_condition": short_term_score,
     }
     label_by_axis = {
         "financial_environment": "익일 금융환경 테스트",
+        "medium_term_model_outlook": "익일 종합 신호 테스트",
         "short_term_market_condition": "익일 단기상황 테스트",
     }
     for item in series:
@@ -189,7 +191,11 @@ def _attach_next_day_signal_test(composite: dict, next_day_preview: dict) -> Non
         "reference_session": reference_session,
         "date_label": f"{reference_session} 익일",
         "date_tone": "muted",
-        "attached_axis_series": ["financial_environment", "short_term_market_condition"],
+        "attached_axis_series": [
+            "financial_environment",
+            "medium_term_model_outlook",
+            "short_term_market_condition",
+        ],
         "summary_score": round(numeric_score, 4),
         "environment_score": round(environment_score, 4),
         "short_term_score": round(short_term_score, 4),
