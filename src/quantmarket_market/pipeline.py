@@ -114,24 +114,93 @@ def _attach_next_day_signal_test(composite: dict, next_day_preview: dict) -> Non
         return
     preview_label = str(next_day_preview.get("preview_label") or "익일 신호 테스트").strip()
     position_pct = max(0.0, min(100.0, (numeric_score + 3.0) / 6.0 * 100.0))
+    biases = next_day_preview.get("biases") if isinstance(next_day_preview.get("biases"), dict) else {}
+
+    def clamp_score(value: float) -> float:
+        return max(-3.0, min(3.0, float(value)))
+
+    def numeric_bias(key: str) -> float:
+        try:
+            return float(biases.get(key) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    environment_score = clamp_score(
+        numeric_bias("global_risk_bias") * 0.65
+        + numeric_bias("overnight_fx_bias") * 0.35
+    )
+    short_term_score = clamp_score(numeric_bias("overnight_futures_bias"))
+
     signal = {
         "enabled": True,
         "label": "익일 신호 테스트",
         "reference_session": reference_session,
         "preview_label": preview_label,
         "preview_score": round(numeric_score, 4),
+        "environment_score": round(environment_score, 4),
+        "short_term_score": round(short_term_score, 4),
         "official_score_impact": False,
         "experiment_status": next_day_preview.get("experiment_status") or "validation_required",
     }
     composite["next_day_signal_test"] = signal
     chart = composite.get("composite_chart") if isinstance(composite.get("composite_chart"), dict) else {}
     series = chart.get("series") if isinstance(chart.get("series"), list) else []
-    series = [item for item in series if item.get("series_id") != "next_day_signal_test"]
+    test_series_ids = {
+        "next_day_signal_test",
+        "next_day_environment_signal_test",
+        "next_day_short_term_signal_test",
+    }
+    series = [item for item in series if item.get("series_id") not in test_series_ids]
+
+    def build_test_series(*, series_id: str, label: str, value: float, color: str, description: str) -> dict:
+        value = round(float(value), 4)
+        value_position_pct = max(0.0, min(100.0, (value + 3.0) / 6.0 * 100.0))
+        return {
+            "series_id": series_id,
+            "label": label,
+            "description": description,
+            "color": color,
+            "points": [
+                {
+                    "date": reference_session,
+                    "value": value,
+                    "label": "익일",
+                    "preview_label": preview_label,
+                    "official_score_impact": False,
+                }
+            ],
+            "latest_visual": {
+                "score": value,
+                "position_pct": round(value_position_pct, 1),
+                "display_text": f"{value:+.2f}점, {preview_label}",
+                "band": {"label": "검증 전", "tone": "test", "color": color},
+                "explain_text": "익일 신호 테스트용 보조 마커입니다.",
+            },
+        }
+
+    series.append(
+        build_test_series(
+            series_id="next_day_environment_signal_test",
+            label="익일 금융환경 테스트",
+            value=environment_score,
+            color="#0ea5e9",
+            description="글로벌 리스크와 환율 기반의 익일 금융시장 환경 실험값입니다.",
+        )
+    )
+    series.append(
+        build_test_series(
+            series_id="next_day_short_term_signal_test",
+            label="익일 단기상황 테스트",
+            value=short_term_score,
+            color="#f97316",
+            description="국내 야간선물, EWY, 미국 선물 기반의 익일 단기 시장상황 실험값입니다.",
+        )
+    )
     series.append(
         {
             "series_id": "next_day_signal_test",
             "label": "익일 신호 테스트",
-            "description": "야간/장외 자산 흐름 기반 검증 전 실험값입니다. 정식 3축 점수에는 반영하지 않습니다.",
+            "description": "야간/장외 자산 흐름 종합 검증 전 실험값입니다. 정식 3축 점수에는 반영하지 않습니다.",
             "color": "#7c3aed",
             "points": [
                 {
