@@ -506,9 +506,9 @@ def _headline_and_summary(preview_label: str, biases: dict, market_flow_label: s
 
 def _title_candidates(preview_label: str, reference_session: str) -> list[str]:
     return [
-        f"{reference_session} 장초반 전망 참고",
-        f"내일 시장 전망 참고: {preview_label}",
-        f"야간 자산 흐름 점검: {preview_label}",
+        f"{reference_session} 익일 신호 테스트",
+        f"익일 신호 테스트: {preview_label}",
+        f"야간/장외 스트레스 점검: {preview_label}",
     ]
 
 
@@ -696,9 +696,9 @@ def build_next_day_preview_outputs(
 
     notice_block = {
         "title": "주의사항",
-        "short_notice": "다음 거래일 장초반 참고 정보입니다.",
+        "short_notice": "익일 신호 테스트용 참고 정보입니다.",
         "body": NOTICE_BLOCK["body"],
-        "preview_only": "야간 자산 흐름을 참고해 만든 공개형 참고 정보이며, 개별 투자자문이 아닙니다.",
+        "preview_only": "야간/장외 자산 흐름을 참고해 만든 검증 전 실험값이며, 정식 시장 현황판 점수나 개별 투자자문이 아닙니다.",
     }
     preview_payload = {
         "market": market,
@@ -706,13 +706,16 @@ def build_next_day_preview_outputs(
         "reference_session": reference_session,
         "content_mode": "next_day_preview",
         "source_type": "public_next_day_preview",
+        "experiment_label": "익일 신호 테스트",
+        "experiment_status": "validation_required",
+        "official_score_impact": False,
         "active_now": active_now,
         "active_window": {
             "start": "18:00",
             "end": "08:30",
             "timezone": "Asia/Seoul",
         },
-        "title": "내일 시장 전망 참고",
+        "title": "익일 신호 테스트",
         "preview_label": preview_label,
         "preview_score": biases["next_day_preview_score"],
         "headline_line": headline_line,
@@ -728,7 +731,7 @@ def build_next_day_preview_outputs(
         "hook_line": headline_line,
         "caption_lines": _caption_lines(preview_label, headline_line, supporting_points, risk_points, summary_line),
         "narration_lines": _caption_lines(preview_label, headline_line, supporting_points, risk_points, summary_line),
-        "tags": ["시장브리핑", "내일시장전망", "퀀트모델", "한국증시", "멀티애셋"],
+        "tags": ["시장브리핑", "익일신호테스트", "야간장외스트레스", "퀀트모델", "한국증시", "멀티애셋"],
         "content_hash": content_hash,
         "material_change_flag": material_change_flag,
         "freshness": {
@@ -747,8 +750,8 @@ def build_next_day_preview_outputs(
     }
     quantservice_payload = {
         **preview_payload,
-        "display_title": "내일 시장 전망 참고",
-        "display_subtitle": "야간 자산 흐름과 주요 뉴스를 바탕으로 다음 거래일 장초반 참고 신호를 정리합니다.",
+        "display_title": "익일 신호 테스트",
+        "display_subtitle": "야간/장외 자산 흐름과 주요 뉴스를 바탕으로 다음 거래일 참고 신호를 별도 실험값으로 정리합니다.",
     }
     api_payload = build_api_response(
         endpoint=f"/api/v1/market-analysis/next-day-preview?market={market}",
