@@ -19289,6 +19289,91 @@
         "리스크: 20일선 및 60일선 위 종목 비율이 낮아 상승 모멘텀이 시장 전반으로 확산되지 못합니다.",
         "리스크: 중동 긴장 및 유가 급등 관련 뉴스가 연이어 보도되며 대외 리스크 요인이 부각되고 있습니다."
       ]
+    },
+    {
+      "market": "KR",
+      "asof": "2026-06-09T22:00:00+09:00",
+      "provider": "gemini",
+      "generated_at": "2026-06-09T22:05:04+09:00",
+      "source": "fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:gemini:gemini-2.5-flash",
+      "summary_lines": [
+        "긍정: 코스피 1개월 상승 흐름이 지속되어 시장의 중기적인 지지력이 아직은 유지되는 모습입니다.",
+        "긍정: 프로그램 순매수가 6,776억 원으로 대규모 유입되어 장중 지수 방어에 긍정적으로 기여합니다.",
+        "긍정: 원달러 환율이 비교적 안정된 흐름을 보여 대외 리스크 확대 우려가 현재는 제한적입니다.",
+        "긍정: 퀀트모델 시장 흐름과 장중 약세 흐름이 일치하지만, 급락을 유발하는 추가 신호는 관찰되지 않습니다.",
+        "리스크: 코스피와 코스닥이 장중 강한 약세를 보이며 시장 전반의 하방 압력이 커지는 양상입니다.",
+        "리스크: 외국인 순매도가 2,644억 원으로 주요 투자 주체의 매도 우위가 뚜렷하게 나타나고 있습니다.",
+        "리스크: 20일선 및 60일선 위 종목 비율이 낮아 상승 모멘텀이 시장 전반으로 확산되지 못합니다.",
+        "리스크: 중동 긴장 및 유가 급등 관련 뉴스가 연이어 보도되며 대외 리스크 요인이 부각되고 있습니다."
+      ]
+    },
+    {
+      "market": "KR",
+      "asof": "2026-06-09T23:00:00+09:00",
+      "provider": "gemini",
+      "generated_at": "2026-06-09T23:05:07+09:00",
+      "source": "fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:gemini:gemini-2.5-flash",
+      "summary_lines": [
+        "긍정: 코스피 1개월 상승 흐름이 지속되어 시장의 중기적인 지지력이 아직은 유지되는 모습입니다.",
+        "긍정: 프로그램 순매수가 6,776억 원으로 대규모 유입되어 장중 지수 방어에 긍정적으로 기여합니다.",
+        "긍정: 원달러 환율이 비교적 안정된 흐름을 보여 대외 리스크 확대 우려가 현재는 제한적입니다.",
+        "긍정: 퀀트모델 시장 흐름과 장중 약세 흐름이 일치하지만, 급락을 유발하는 추가 신호는 관찰되지 않습니다.",
+        "리스크: 코스피와 코스닥이 장중 강한 약세를 보이며 시장 전반의 하방 압력이 커지는 양상입니다.",
+        "리스크: 외국인 순매도가 2,644억 원으로 주요 투자 주체의 매도 우위가 뚜렷하게 나타나고 있습니다.",
+        "리스크: 20일선 및 60일선 위 종목 비율이 낮아 상승 모멘텀이 시장 전반으로 확산되지 못합니다.",
+        "리스크: 중동 긴장 및 유가 급등 관련 뉴스가 연이어 보도되며 대외 리스크 요인이 부각되고 있습니다."
+      ]
+    },
+    {
+      "market": "KR",
+      "asof": "2026-06-10T00:00:00+09:00",
+      "provider": "gemini",
+      "generated_at": "2026-06-10T00:05:11+09:00",
+      "source": "fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:fallback_previous:gemini:gemini-2.5-flash",
+      "summary_lines": [
+        "긍정: 코스피 1개월 상승 흐름이 지속되어 시장의 중기적인 지지력이 아직은 유지되는 모습입니다.",
+        "긍정: 프로그램 순매수가 6,776억 원으로 대규모 유입되어 장중 지수 방어에 긍정적으로 기여합니다.",
+        "긍정: 원달러 환율이 비교적 안정된 흐름을 보여 대외 리스크 확대 우려가 현재는 제한적입니다.",
+        "긍정: 퀀트모델 시장 흐름과 장중 약세 흐름이 일치하지만, 급락을 유발하는 추가 신호는 관찰되지 않습니다.",
+        "리스크: 코스피와 코스닥이 장중 강한 약세를 보이며 시장 전반의 하방 압력이 커지는 양상입니다.",
+        "리스크: 외국인 순매도가 2,644억 원으로 주요 투자 주체의 매도 우위가 뚜렷하게 나타나고 있습니다.",
+        "리스크: 20일선 및 60일선 위 종목 비율이 낮아 상승 모멘텀이 시장 전반으로 확산되지 못합니다.",
+        "리스크: 중동 긴장 및 유가 급등 관련 뉴스가 연이어 보도되며 대외 리스크 요인이 부각되고 있습니다."
+      ]
+    },
+    {
+      "market": "KR",
+      "asof": "2026-06-10T18:00:00+09:00",
+      "provider": "gemini",
+      "generated_at": "2026-06-10T18:44:14+09:00",
+      "source": "gemini:gemini-2.5-flash",
+      "summary_lines": [
+        "긍정: 퀀트모델 시장 흐름은 강보합을 유지하나 장중 단기 조정 흐름으로 시장은 보합권 움직임을 보입니다.",
+        "긍정: 환율이 안정적인 흐름을 지속하여 대외 리스크 요인이 현재는 제한적으로 작용합니다.",
+        "긍정: 코스피200 선물이 장중 0.0453% 하락으로 상대적으로 견조한 흐름을 나타냅니다.",
+        "긍정: 급격한 하락을 유발할 만한 추가적인 부정 신호는 아직 관찰되지 않습니다.",
+        "리스크: 코스피와 코스닥이 장중 강한 약세 흐름을 보이며 시장 전반의 하방 압력이 확대됩니다.",
+        "리스크: 외국인 순매도가 277.54억 원을 기록하며 주요 투자 주체의 매도 우위가 뚜렷합니다.",
+        "리스크: 프로그램 총 매도가 230.32억 원으로 집계되어 지수 하락에 영향을 주고 있습니다.",
+        "리스크: 20일선 및 60일선 위 종목 비율이 모두 낮아 상승 모멘텀이 시장 전반으로 확산되지 못합니다."
+      ]
+    },
+    {
+      "market": "KR",
+      "asof": "2026-06-10T19:00:00+09:00",
+      "provider": "gemini",
+      "generated_at": "2026-06-10T19:02:19+09:00",
+      "source": "gemini:gemini-2.5-flash",
+      "summary_lines": [
+        "긍정: 퀀트모델 시장 흐름은 강보합(0.6205)으로 나타나 전반적인 상승 기조를 유지합니다.",
+        "긍정: 환율이 안정적인 흐름을 지속하여 대외 리스크 요인이 현재 시장에 제한적으로 작용합니다.",
+        "긍정: 코스피200 선물이 장중 0.0453% 하락하며 상대적으로 견조한 흐름을 보여줍니다.",
+        "긍정: 최근 이란-이스라엘 교전 중단 소식 등 지정학적 위험이 진정되는 양상으로 보입니다.",
+        "리스크: 코스피와 코스닥이 장중 강한 약세 흐름을 보이며 시장 전반의 하방 압력이 확대됩니다.",
+        "리스크: 외국인 순매도가 277.54억 원을 기록하여 주요 투자 주체의 매도 우위가 뚜렷합니다.",
+        "리스크: 프로그램 총 매도가 230.32억 원으로 집계되어 지수 하락에 직접적으로 영향을 미칩니다.",
+        "리스크: 20일선 및 60일선 위 종목 비율이 낮아 상승 모멘텀이 시장 전반으로 확산되지 못합니다."
+      ]
     }
   ]
 }
