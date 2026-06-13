@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import sqlite3
+from datetime import date, timedelta
 from pathlib import Path
 
 from .config import DEFAULT_DB_PATH, ROOT_DIR
@@ -48,6 +49,47 @@ def _pct(value: float | None) -> float | None:
 
 def _clip(value: float, lo: float = -3.0, hi: float = 3.0) -> float:
     return max(lo, min(hi, value))
+
+
+def _parse_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _append_calendar_carry_forward_points(
+    points: list[dict],
+    *,
+    end_date: str,
+    value_keys: tuple[str, ...],
+    source_date_key: str,
+    point_type: str,
+    source_note: str,
+) -> None:
+    if not points:
+        return
+    last_date = _parse_date(points[-1].get("date"))
+    target_date = _parse_date(end_date)
+    if last_date is None or target_date is None or last_date >= target_date:
+        return
+    source_point = dict(points[-1])
+    source_date = source_point.get(source_date_key) or source_point.get("date")
+    current = last_date + timedelta(days=1)
+    while current <= target_date:
+        carry_point = {
+            "date": current.isoformat(),
+            "point_type": point_type,
+            "carry_forward_from": source_date,
+            "source_note": source_note,
+        }
+        for key in value_keys:
+            if key in source_point:
+                carry_point[key] = source_point[key]
+        points.append(carry_point)
+        current += timedelta(days=1)
 
 
 def _gauge_value(score: float | None, *, lo: float = -3.0, hi: float = 3.0) -> float | None:
@@ -401,30 +443,57 @@ def _build_chart_series(
             points.append({"date": row.get("asof_date"), "value": _round(_clip(value), 4)})
         latest_value = points[-1]["value"] if points else None
         if points and current_date and points[-1]["date"] < current_date:
+            has_current_override = (
+                spec["series_id"] == "financial_environment"
+                and current_environment_score is not None
+            ) or (
+                spec["series_id"] == "short_term_market_condition"
+                and current_short_score is not None
+            )
+            carry_end_date = current_date
+            if has_current_override:
+                parsed_current = _parse_date(current_date)
+                carry_end_date = (
+                    (parsed_current - timedelta(days=1)).isoformat()
+                    if parsed_current is not None
+                    else current_date
+                )
+            _append_calendar_carry_forward_points(
+                points,
+                end_date=carry_end_date,
+                value_keys=("value",),
+                source_date_key="carry_forward_from",
+                point_type="calendar_carry_forward",
+                source_note="비거래일에는 직전 기준일의 3축 점수를 이월 표시합니다.",
+            )
             if spec["series_id"] == "financial_environment" and current_environment_score is not None:
                 latest_value = _round(_clip(current_environment_score), 4)
-                points.append({
-                    "date": current_date,
-                    "value": latest_value,
-                    "point_type": "current_intraday_environment",
-                    "source_note": "실행시점 장중 지수·환율·선물·리스크를 반영한 금융환경 현재 포인트입니다.",
-                })
+                if points[-1]["date"] < current_date:
+                    points.append({
+                        "date": current_date,
+                        "value": latest_value,
+                        "point_type": "current_intraday_environment",
+                        "source_note": "실행시점 장중 지수·환율·선물·리스크를 반영한 금융환경 현재 포인트입니다.",
+                    })
+                else:
+                    points[-1]["value"] = latest_value
+                    points[-1]["point_type"] = "current_intraday_environment"
+                    points[-1]["source_note"] = "실행시점 장중 지수·환율·선물·리스크를 반영한 금융환경 현재 포인트입니다."
             elif spec["series_id"] == "short_term_market_condition" and current_short_score is not None:
                 latest_value = _round(_clip(current_short_score), 4)
-                points.append({
-                    "date": current_date,
-                    "value": latest_value,
-                    "point_type": "current_intraday_blend",
-                    "source_note": "실행시점 장중 단기값을 반영한 현재 포인트입니다.",
-                })
+                if points[-1]["date"] < current_date:
+                    points.append({
+                        "date": current_date,
+                        "value": latest_value,
+                        "point_type": "current_intraday_blend",
+                        "source_note": "실행시점 장중 단기값을 반영한 현재 포인트입니다.",
+                    })
+                else:
+                    points[-1]["value"] = latest_value
+                    points[-1]["point_type"] = "current_intraday_blend"
+                    points[-1]["source_note"] = "실행시점 장중 단기값을 반영한 현재 포인트입니다."
             else:
-                points.append({
-                    "date": current_date,
-                    "value": latest_value,
-                    "point_type": "carry_forward",
-                    "carry_forward_from": points[-1]["date"],
-                    "source_note": "일별 확정 mart 최신값을 현재 기준일에 이월 표시한 포인트입니다.",
-                })
+                latest_value = points[-1]["value"]
         elif points and spec["series_id"] == "financial_environment" and current_environment_score is not None:
             latest_value = _round(_clip(current_environment_score), 4)
             points[-1]["value"] = latest_value
@@ -519,6 +588,22 @@ def _reference_index_series(asof: str, *, start_date: str = DEFAULT_CHART_START_
                 for row in db_rows
             ]
             intraday = intraday_quotes.get(spec["index_code"])
+            carry_end_date = asof_date
+            if intraday is not None:
+                parsed_asof = _parse_date(asof_date)
+                carry_end_date = (
+                    (parsed_asof - timedelta(days=1)).isoformat()
+                    if parsed_asof is not None
+                    else asof_date
+                )
+            _append_calendar_carry_forward_points(
+                points,
+                end_date=carry_end_date,
+                value_keys=("value", "raw_close"),
+                source_date_key="source_date",
+                point_type="calendar_carry_forward_close",
+                source_note="비거래일에는 직전 거래일 종가를 기준지수 선에 이월 표시합니다.",
+            )
             if intraday is not None and points[-1]["date"] < asof_date:
                 intraday_price = float(intraday["price"])
                 points.append({
