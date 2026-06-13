@@ -76,7 +76,11 @@ def _append_calendar_carry_forward_points(
     if last_date is None or target_date is None or last_date >= target_date:
         return
     source_point = dict(points[-1])
-    source_date = source_point.get(source_date_key) or source_point.get("date")
+    source_date = (
+        source_point.get("carry_forward_from")
+        or source_point.get(source_date_key)
+        or source_point.get("date")
+    )
     current = last_date + timedelta(days=1)
     while current <= target_date:
         carry_point = {
@@ -90,6 +94,47 @@ def _append_calendar_carry_forward_points(
                 carry_point[key] = source_point[key]
         points.append(carry_point)
         current += timedelta(days=1)
+
+
+def _expand_calendar_carry_forward_points(
+    points: list[dict],
+    *,
+    value_keys: tuple[str, ...],
+    source_date_key: str,
+    point_type: str,
+    source_note: str,
+) -> list[dict]:
+    expanded: list[dict] = []
+    for point in points:
+        point_date = _parse_date(point.get("date"))
+        if point_date is None:
+            continue
+        if not expanded:
+            expanded.append(point)
+            continue
+        last_date = _parse_date(expanded[-1].get("date"))
+        if last_date is not None and last_date < point_date - timedelta(days=1):
+            source_point = dict(expanded[-1])
+            source_date = (
+                source_point.get("carry_forward_from")
+                or source_point.get(source_date_key)
+                or source_point.get("date")
+            )
+            current = last_date + timedelta(days=1)
+            while current < point_date:
+                carry_point = {
+                    "date": current.isoformat(),
+                    "point_type": point_type,
+                    "carry_forward_from": source_date,
+                    "source_note": source_note,
+                }
+                for key in value_keys:
+                    if key in source_point:
+                        carry_point[key] = source_point[key]
+                expanded.append(carry_point)
+                current += timedelta(days=1)
+        expanded.append(point)
+    return expanded
 
 
 def _gauge_value(score: float | None, *, lo: float = -3.0, hi: float = 3.0) -> float | None:
@@ -441,6 +486,13 @@ def _build_chart_series(
             if value is None:
                 continue
             points.append({"date": row.get("asof_date"), "value": _round(_clip(value), 4)})
+        points = _expand_calendar_carry_forward_points(
+            points,
+            value_keys=("value",),
+            source_date_key="carry_forward_from",
+            point_type="calendar_carry_forward",
+            source_note="비거래일에는 직전 기준일의 3축 점수를 이월 표시합니다.",
+        )
         latest_value = points[-1]["value"] if points else None
         if points and current_date and points[-1]["date"] < current_date:
             has_current_override = (
@@ -587,6 +639,13 @@ def _reference_index_series(asof: str, *, start_date: str = DEFAULT_CHART_START_
                 }
                 for row in db_rows
             ]
+            points = _expand_calendar_carry_forward_points(
+                points,
+                value_keys=("value", "raw_close"),
+                source_date_key="source_date",
+                point_type="calendar_carry_forward_close",
+                source_note="비거래일에는 직전 거래일 종가를 기준지수 선에 이월 표시합니다.",
+            )
             intraday = intraday_quotes.get(spec["index_code"])
             carry_end_date = asof_date
             if intraday is not None:
