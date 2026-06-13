@@ -156,27 +156,48 @@ def _attach_next_day_signal_test(composite: dict, next_day_preview: dict) -> Non
         "medium_term_model_outlook": "익일 종합 신호 테스트",
         "short_term_market_condition": "익일 단기상황 테스트",
     }
+    chart_preview_points = [
+        point
+        for point in (chart.get("preview_points") if isinstance(chart.get("preview_points"), list) else [])
+        if point.get("date") != reference_session
+    ]
     for item in series:
         series_id = item.get("series_id")
         if series_id not in score_by_axis:
             continue
         points = item.get("points") if isinstance(item.get("points"), list) else []
-        points = [point for point in points if point.get("date") != reference_session]
+        item["points"] = [
+            point
+            for point in points
+            if not (
+                point.get("date") == reference_session
+                and point.get("point_role") == "next_day_signal_test"
+            )
+        ]
         axis_score = round(float(score_by_axis[series_id]), 4)
-        points.append(
-            {
-                "date": reference_session,
-                "value": axis_score,
-                "label": "익일",
-                "point_role": "next_day_signal_test",
-                "display_label": label_by_axis[series_id],
-                "preview_label": preview_label,
-                "official_score_impact": False,
-                "experiment_status": signal["experiment_status"],
-                "date_tone": "muted",
-            }
-        )
-        item["points"] = points
+        preview_point = {
+            "date": reference_session,
+            "value": axis_score,
+            "label": "익일",
+            "point_role": "next_day_signal_test",
+            "display_label": label_by_axis[series_id],
+            "preview_label": preview_label,
+            "official_score_impact": False,
+            "experiment_status": signal["experiment_status"],
+            "color": item.get("color"),
+            "rendering_hint": {
+                "date_axis_policy": "exclude_from_main_axis",
+                "point_color_policy": "same_as_parent_series",
+                "tooltip_policy": "same_as_regular_point",
+                "line_style_policy": "same_as_parent_series",
+            },
+        }
+        item["preview_points"] = [
+            point
+            for point in (item.get("preview_points") if isinstance(item.get("preview_points"), list) else [])
+            if point.get("date") != reference_session
+        ]
+        item["preview_points"].append(preview_point)
         item["next_day_signal_test"] = {
             "enabled": True,
             "reference_session": reference_session,
@@ -184,13 +205,35 @@ def _attach_next_day_signal_test(composite: dict, next_day_preview: dict) -> Non
             "score": axis_score,
             "preview_label": preview_label,
             "official_score_impact": False,
+            "date_axis_policy": "exclude_from_main_axis",
+            "point_color_policy": "same_as_parent_series",
+            "tooltip_policy": "same_as_regular_point",
         }
+        chart_preview_points.append(
+            {
+                "date": reference_session,
+                "value": axis_score,
+                "label": "익일",
+                "series_id": series_id,
+                "point_role": "next_day_signal_test",
+                "display_label": label_by_axis[series_id],
+                "preview_label": preview_label,
+                "official_score_impact": False,
+                "experiment_status": signal["experiment_status"],
+                "color": item.get("color"),
+                "date_axis_policy": "exclude_from_main_axis",
+                "point_color_policy": "same_as_parent_series",
+                "tooltip_policy": "same_as_regular_point",
+            }
+        )
     chart["series"] = series
     chart["next_day_signal_test"] = {
         "enabled": True,
         "reference_session": reference_session,
         "date_label": f"{reference_session} 익일",
-        "date_tone": "muted",
+        "date_axis_policy": "exclude_from_main_axis",
+        "point_color_policy": "same_as_parent_series",
+        "tooltip_policy": "same_as_regular_point",
         "attached_axis_series": [
             "financial_environment",
             "medium_term_model_outlook",
@@ -201,6 +244,7 @@ def _attach_next_day_signal_test(composite: dict, next_day_preview: dict) -> Non
         "short_term_score": round(short_term_score, 4),
         "official_score_impact": False,
     }
+    chart["preview_points"] = chart_preview_points
     composite["composite_chart"] = chart
     rules = composite.get("interpretation_rules") if isinstance(composite.get("interpretation_rules"), list) else []
     rule = "익일 신호 테스트는 야간/장외 스트레스 참고값이며 정식 3축 점수에는 반영하지 않습니다."

@@ -4,7 +4,9 @@
 
 ## 배경
 
-QuantMarket에서 시장 현황판 3축 그래프 payload에 `익일 신호 테스트`를 기존 3축 선과 연결되는 보조 포인트로 추가했습니다.
+QuantMarket에서 시장 현황판 3축 그래프 payload에 `익일 신호 테스트`를 제공합니다.
+
+2026-06-14 개정: 익일 신호를 `series[].points`에 넣으면 x축 마지막 날짜가 익일로 밀리면서 당일 포인트가 누락되어 보이는 문제가 반복되었습니다. 따라서 익일 신호는 본 그래프 날짜축 계산에서 제외되는 `preview_points`로 분리합니다.
 
 ## QuantMarket 제공 데이터
 
@@ -15,7 +17,7 @@ QuantMarket에서 시장 현황판 3축 그래프 payload에 `익일 신호 테�
 - `quantservice_market_today.json`
 - `api_v1_market_analysis_today_bridge.json`
 
-위 파일의 `market_state_composite.composite_chart.series[].points`에 아래 형태의 익일 포인트가 포함됩니다.
+위 파일의 `market_state_composite.composite_chart.series[].preview_points`에 아래 형태의 익일 포인트가 포함됩니다.
 
 ```json
 {
@@ -27,9 +29,14 @@ QuantMarket에서 시장 현황판 3축 그래프 payload에 `익일 신호 테�
   "preview_label": "장초반 경계 흐름",
   "official_score_impact": false,
   "experiment_status": "validation_required",
-  "date_tone": "muted"
+  "color": "#2563eb",
+  "date_axis_policy": "exclude_from_main_axis",
+  "point_color_policy": "same_as_parent_series",
+  "tooltip_policy": "same_as_regular_point"
 }
 ```
+
+동일 내용은 `market_state_composite.composite_chart.preview_points`에도 `series_id` 포함 형태로 제공됩니다.
 
 현재 적용 축:
 
@@ -41,14 +48,15 @@ QuantMarket에서 시장 현황판 3축 그래프 payload에 `익일 신호 테�
 
 ## 요청 사항
 
-1. 기존 3축 그래프에서 `point_role = next_day_signal_test` 포인트를 같은 선/색상으로 연결 표시해 주세요.
-2. 오늘 날짜와 익일 날짜가 함께 보이도록 x축 마지막 라벨에 익일 날짜를 표시해 주세요.
-3. 익일 날짜 라벨은 `date_tone = muted` 기준으로 회색 처리해 주세요.
-4. 익일 포인트 tooltip에는 `display_label`, `preview_label`, `official_score_impact=false`, `검증 전 실험값` 문구를 표시해 주세요.
-5. 범례에는 기존 3축명은 유지하고, 별도 범례를 추가한다면 `익일 신호 테스트는 정식 점수 미반영`으로 표시해 주세요.
+1. x축 날짜 계산은 `series[].points`와 `reference_indices[].points`만 사용해 주세요.
+2. `series[].preview_points`는 본 날짜축에 포함하지 말고, 차트 오른쪽 preview layer로 오버레이해 주세요.
+3. preview point의 색상, 점 모양, tooltip 세부 UI는 해당 parent series와 동일하게 표시해 주세요.
+4. 사용자 화면에서는 preview point를 실데이터 포인트와 시각적으로 구분하지 않도록 해 주세요.
+5. 데이터 내부의 `point_role`, `official_score_impact=false`, `experiment_status`는 유지하되, 기본 tooltip에서는 기존 포인트와 같은 정보 구조를 사용해 주세요.
+6. 별도 안내문이 필요하면 차트 밖 주석 영역에만 `익일 신호 테스트는 정식 점수 미반영`으로 표시해 주세요.
 
 ## 주의
 
-- 익일 포인트는 정식 시장 현황판 점수 계산에 포함되지 않습니다.
-- UI에서는 예측 확정값이 아니라 `익일 신호 테스트` 또는 `검증 전 실험값`으로 표현해야 합니다.
+- 익일 포인트는 정식 시장 현황판 점수 계산과 본 그래프 날짜축 계산에 포함되지 않습니다.
+- UI에서는 preview point의 색상과 상세 표시를 parent series와 일관되게 유지해야 합니다.
 - QuantMarket은 데이터 생산만 담당하며, 실제 그래프 렌더링 스타일 변경은 QuantService에서 처리해야 합니다.
