@@ -10,9 +10,9 @@ from .ai_briefs import build_ai_brief_prompt, load_ai_briefs, load_previous_ai_b
 from .config import REPORT_DIR
 from .payloads import write_payload_file
 
-GEMINI_MODEL = os.getenv("QUANTMARKET_GEMINI_MODEL", "gemini-2.5-flash").strip() or "gemini-2.5-flash"
-GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
-GEMINI_ENDPOINT = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent"
+OPENAI_MODEL = os.getenv("QUANTMARKET_OPENAI_MODEL", "gpt-4o").strip() or "gpt-4o"
+OPENAI_API_KEY = (os.getenv("OPENAI_API_KEY") or "").strip()
+OPENAI_ENDPOINT = os.getenv("QUANTMARKET_OPENAI_ENDPOINT", "https://api.openai.com/v1/chat/completions").strip()
 
 
 class AIGenerationError(RuntimeError):
@@ -36,47 +36,55 @@ def _normalize_lines(text: str) -> list[str]:
     return cleaned_lines[:8]
 
 
-def _call_gemini(prompt: str) -> list[str]:
-    if not GEMINI_API_KEY:
-        raise AIGenerationError("GEMINI_API_KEY or GOOGLE_API_KEY is not configured.")
+def _call_openai(prompt: str) -> list[str]:
+    if not OPENAI_API_KEY:
+        raise AIGenerationError("OPENAI_API_KEY is not configured.")
     body = {
-        "contents": [{
-            "parts": [{
-                "text": prompt + " 정확히 8줄만 평문으로 답하세요. 1~4줄은 긍정:, 5~8줄은 리스크:로 시작하세요. 각 줄은 줄바꿈으로 구분하고, 숫자 bullet, JSON, 마크다운, 제목은 쓰지 마세요."
-            }]
-        }],
-        "generationConfig": {
-            "temperature": 1.0,
-            "maxOutputTokens": 720,
-            "thinkingConfig": {
-                "thinkingBudget": 0
-            }
-        },
+        "model": OPENAI_MODEL,
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "당신은 공개 시장 브리핑용 퀀트 시장분석 작성자입니다. "
+                    "투자 자문, 매수/매도 권유, 비중 조절, 타이밍 제안을 하지 마세요."
+                ),
+            },
+            {
+                "role": "user",
+                "content": (
+                    prompt
+                    + " 정확히 8줄만 평문으로 답하세요. 1~4줄은 긍정:, 5~8줄은 리스크:로 시작하세요. "
+                    "각 줄은 줄바꿈으로 구분하고, 숫자 bullet, JSON, 마크다운, 제목은 쓰지 마세요."
+                ),
+            },
+        ],
+        "temperature": 1.0,
+        "max_tokens": 720,
     }
     request = Request(
-        f"{GEMINI_ENDPOINT}?key={GEMINI_API_KEY}",
+        OPENAI_ENDPOINT,
         data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
         method="POST",
-        headers={"Content-Type": "application/json; charset=utf-8"},
+        headers={
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+        },
     )
     try:
         with urlopen(request, timeout=45) as response:
             payload = json.loads(response.read().decode("utf-8-sig"))
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise AIGenerationError(f"Gemini HTTP {exc.code}: {detail}") from exc
-    candidates = payload.get("candidates") or []
-    if not candidates:
-        raise AIGenerationError(f"Gemini returned no candidates: {payload}")
-    text_parts: list[str] = []
-    for part in candidates[0].get("content", {}).get("parts", []):
-        if part.get("text"):
-            text_parts.append(part["text"])
-    if not text_parts:
-        raise AIGenerationError(f"Gemini returned no text parts: {payload}")
-    lines = _normalize_lines("\n".join(text_parts))
+        raise AIGenerationError(f"OpenAI HTTP {exc.code}: {detail}") from exc
+    choices = payload.get("choices") or []
+    if not choices:
+        raise AIGenerationError(f"OpenAI returned no choices: {payload}")
+    text = ((choices[0].get("message") or {}).get("content") or "").strip()
+    if not text:
+        raise AIGenerationError(f"OpenAI returned no message content: {payload}")
+    lines = _normalize_lines(text)
     if not lines:
-        raise AIGenerationError(f"Gemini returned no usable text lines: {text_parts}")
+        raise AIGenerationError(f"OpenAI returned no usable text lines: {text}")
     return lines[:8]
 
 
@@ -88,20 +96,22 @@ def refresh_ai_briefs(*, market: str, asof: str, summary: dict, detail: dict, ge
         "market_context": market_context or {},
         "intraday_context": intraday_context or {},
         "providers": {
-            "gemini": {
-                "enabled": bool(GEMINI_API_KEY),
-                "model": GEMINI_MODEL,
+            "openai": {
+                "enabled": bool(OPENAI_API_KEY),
+                "model": OPENAI_MODEL,
                 "status": "not_attempted",
             },
         },
     }
 
     provider_specs = [
-        ("gemini", GEMINI_API_KEY, _call_gemini, f"gemini:{GEMINI_MODEL}"),
+        ("openai", OPENAI_API_KEY, _call_openai, f"openai:{OPENAI_MODEL}"),
     ]
 
     for provider, api_key, call_fn, source in provider_specs:
         previous_record = load_previous_ai_brief(market=market, asof=asof, provider=provider)
+        if previous_record is None and provider == "openai":
+            previous_record = load_previous_ai_brief(market=market, asof=asof, provider="gemini")
         previous_lines = (previous_record or {}).get("summary_lines") or []
         report["providers"][provider]["previous_asof"] = (previous_record or {}).get("asof")
         report["providers"][provider]["previous_summary_lines"] = previous_lines

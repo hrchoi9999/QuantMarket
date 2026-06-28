@@ -7,12 +7,12 @@ from .config import REFERENCE_DIR
 
 AI_BRIEFS_PATH = REFERENCE_DIR / "market_ai_briefs_manual.json"
 PROVIDERS = {
-    "gemini": "제미나이",
+    "openai": "OpenAI",
 }
 PROVIDER_THEME_LABELS = {
-    "gemini": "시장 분위기",
+    "openai": "시장 분위기",
 }
-GEMINI_FOCUS_ROTATION = [
+MARKET_MOOD_FOCUS_ROTATION = [
     ("index_fx", "지수와 환율의 현재 흐름"),
     ("breadth_vol", "종목 확산과 변동성 체감"),
     ("futures_flow", "선물과 수급의 방향성"),
@@ -56,8 +56,8 @@ def _matching_records(*, market: str, provider: str | None = None) -> list[dict]
 
 def _provider_viewpoint(provider: str, asof: str) -> dict | None:
     dt = _parse_asof(asof)
-    if provider == "gemini":
-        key, label = GEMINI_FOCUS_ROTATION[dt.hour % len(GEMINI_FOCUS_ROTATION)]
+    if provider == "openai":
+        key, label = MARKET_MOOD_FOCUS_ROTATION[dt.hour % len(MARKET_MOOD_FOCUS_ROTATION)]
         return {"key": key, "label": label}
     return None
 
@@ -149,7 +149,7 @@ def upsert_ai_brief(*, market: str, asof: str, provider: str, summary_lines: lis
     return load_ai_briefs(market=market, asof=asof)
 
 
-def _gemini_direction_guidance(state_label: str | None, state_score: float | None) -> str:
+def _direction_guidance(state_label: str | None, state_score: float | None) -> str:
     score = float(state_score or 0.0)
     if state_label in {"강상승", "상승"} or score >= 1.0:
         return "시장 주 방향은 분명한 상승 쪽으로 설명하세요. '소폭', '완만', '미미한' 같은 과도한 축소 표현은 피하세요. 다만 내부 확산과 변동성의 제약은 별도로 짚으세요."
@@ -199,13 +199,13 @@ def build_ai_brief_prompt(*, provider: str, market: str, asof: str, summary: dic
         f"직전 1시간 브리핑={previous_text}, 최근 시장 뉴스={context_headlines[:5]}, 위험 뉴스={risk_headlines[:3]}, caution_bias={caution_bias}. "
     )
 
-    gemini_instruction = (
-        f"제미나이 블록은 '시장 분위기' 관점으로 작성하세요. 이번 시간의 중점 포인트는 '{(viewpoint or {}).get('label')}'. "
+    provider_instruction = (
+        f"OpenAI 블록은 '시장 분위기' 관점으로 작성하세요. 이번 시간의 중점 포인트는 '{(viewpoint or {}).get('label')}'. "
         "1~4줄은 시장을 지지하는 긍정 요인을, 5~8줄은 현재 시장을 누르는 리스크 요인을 쓰세요. "
         "각 줄은 하나의 요인만 다루고, 왜 그 요인이 긍정 또는 리스크인지 근거를 함께 넣으세요. "
         "첫 긍정 줄 또는 첫 리스크 줄에서는 현재 장세의 주 방향을 객관적으로 분명하게 드러내세요. "
         "퀀트모델 시장 흐름과 오늘 장중 흐름이 다르면 그 차이를 긍정 또는 리스크 항목 안에서 바로 설명하세요. "
-        f"{_gemini_direction_guidance(state.get('label'), state.get('score'))} "
+        f"{_direction_guidance(state.get('label'), state.get('score'))} "
         "각 줄은 반드시 근거를 포함해 쓰세요. 예를 들어 지수 방향, 종목 확산력, 변동성, 달러/유가, 선물, 외국인/프로그램 수급, 최근 뉴스 중 하나 이상을 문장 안에 직접 넣으세요. "
         "시니어 투자자가 바로 이해할 수 있게 쉬운 말로 쓰세요. '심리', '분위기', '불확실성' 같은 단어만 쓰지 말고, 어떤 숫자나 움직임 때문에 그렇게 보는지 말하세요. "
         "문장은 '무엇이 어떻게 움직였고, 그래서 시장에는 어떤 의미인지' 순서로 쓰세요. "
@@ -218,4 +218,4 @@ def build_ai_brief_prompt(*, provider: str, market: str, asof: str, summary: dic
         "이번 시간의 focus에 맞춰 최소 1줄 이상은 달라지게 쓰고, 장중 신호가 이전 시간과 다르면 그 변화를 우선 반영하세요."
     )
 
-    return common + gemini_instruction
+    return common + provider_instruction
