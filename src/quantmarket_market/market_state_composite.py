@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
@@ -288,6 +289,80 @@ def _model_input_rows(asof_date: str, *, start_date: str = DEFAULT_CHART_START_D
     return sorted(rows, key=lambda row: row["asof_date"])
 
 
+def _score_from_payload_axis(composite: dict, axis_id: str) -> float | None:
+    for axis in composite.get("axes") or []:
+        if axis.get("axis_id") == axis_id:
+            return _float(axis.get("score"))
+    for series in (composite.get("composite_chart") or {}).get("series") or []:
+        if series.get("series_id") == axis_id:
+            return _float(series.get("latest_value"))
+    return None
+
+
+def _payload_axis_rows(*, start_date: str, end_date: str) -> list[dict]:
+    if not DEFAULT_DB_PATH.exists():
+        return []
+    rows_by_date: dict[str, dict] = {}
+    with sqlite3.connect(str(DEFAULT_DB_PATH)) as con:
+        con.row_factory = sqlite3.Row
+        payload_rows = con.execute(
+            """
+            WITH latest AS (
+                SELECT substr(asof, 1, 10) AS asof_date, MAX(asof) AS max_asof
+                FROM market_analysis_payload
+                WHERE market = 'KR'
+                  AND payload_type = 'detail'
+                  AND substr(asof, 1, 10) >= ?
+                  AND substr(asof, 1, 10) <= ?
+                GROUP BY substr(asof, 1, 10)
+            )
+            SELECT p.asof, p.payload_json
+            FROM market_analysis_payload
+            p JOIN latest l
+              ON p.asof = l.max_asof
+             AND substr(p.asof, 1, 10) = l.asof_date
+            WHERE p.market = 'KR'
+              AND p.payload_type = 'detail'
+            ORDER BY p.asof
+            """,
+            (start_date, end_date),
+        ).fetchall()
+    for payload_row in payload_rows:
+        payload_date = str(payload_row["asof"])[:10]
+        try:
+            payload = json.loads(payload_row["payload_json"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        composite = payload.get("market_state_composite") or {}
+        if not composite:
+            continue
+        recovered = {
+            "asof_date": payload_date,
+            "financial_environment_score": _score_from_payload_axis(composite, "financial_environment"),
+            "medium_term_model_outlook_score": _score_from_payload_axis(composite, "medium_term_model_outlook"),
+            "short_term_market_condition_score": _score_from_payload_axis(composite, "short_term_market_condition"),
+            "point_type": "db_payload_recovered",
+        }
+        if any(recovered.get(key) is not None for key in (
+            "financial_environment_score",
+            "medium_term_model_outlook_score",
+            "short_term_market_condition_score",
+        )):
+            rows_by_date[payload_date] = recovered
+    return [rows_by_date[key] for key in sorted(rows_by_date)]
+
+
+def _merge_model_and_payload_rows(model_rows: list[dict], *, asof_date: str) -> list[dict]:
+    if not model_rows:
+        return _payload_axis_rows(start_date=DEFAULT_CHART_START_DATE, end_date=asof_date)
+    latest_model_date = model_rows[-1].get("asof_date")
+    if not latest_model_date or latest_model_date >= asof_date:
+        return model_rows
+    start = (date.fromisoformat(latest_model_date) + timedelta(days=1)).isoformat()
+    payload_rows = _payload_axis_rows(start_date=start, end_date=asof_date)
+    return model_rows + payload_rows
+
+
 def _forecast_rows(asof_date: str) -> list[dict]:
     rows = [
         row for row in _read_csv_rows(CALIBRATED_FORECAST_CSV)
@@ -308,6 +383,13 @@ def _avg(values: list[float | None]) -> float | None:
 
 
 def _environment_scores(row: dict) -> dict:
+    recovered_score = _float(row.get("financial_environment_score"))
+    if recovered_score is not None:
+        return {
+            "opportunity_score": None,
+            "risk_pressure_score": None,
+            "net_score": recovered_score,
+        }
     opportunity_score = _avg([
         _float(row.get("global_risk_on_score")),
         _float(row.get("external_asset_risk_on_score")),
@@ -414,6 +496,9 @@ def _latest_intraday_environment(asof: str) -> dict | None:
 
 
 def _medium_model_score(row: dict) -> float | None:
+    recovered_score = _float(row.get("medium_term_model_outlook_score"))
+    if recovered_score is not None:
+        return recovered_score
     forecast_score = _float(row.get("market_forecast_score"))
     if forecast_score is not None:
         return forecast_score
@@ -421,6 +506,9 @@ def _medium_model_score(row: dict) -> float | None:
 
 
 def _short_term_row_score(row: dict) -> float | None:
+    recovered_score = _float(row.get("short_term_market_condition_score"))
+    if recovered_score is not None:
+        return recovered_score
     values = [
         _float(row.get("futures_direction_score")),
         _float(row.get("derivatives_pressure_score")),
@@ -438,6 +526,7 @@ def _build_chart_series(
     *,
     current_date: str,
     current_environment_score: float | None,
+    current_medium_score: float | None,
     current_short_score: float | None,
 ) -> list[dict]:
     specs = [
@@ -483,6 +572,12 @@ def _build_chart_series(
                 and current_short_score is not None
             ):
                 value = current_short_score
+            if (
+                spec["series_id"] == "medium_term_model_outlook"
+                and row.get("asof_date") == current_date
+                and current_medium_score is not None
+            ):
+                value = current_medium_score
             if value is None:
                 continue
             points.append({"date": row.get("asof_date"), "value": _round(_clip(value), 4)})
@@ -544,6 +639,19 @@ def _build_chart_series(
                     points[-1]["value"] = latest_value
                     points[-1]["point_type"] = "current_intraday_blend"
                     points[-1]["source_note"] = "실행시점 장중 단기값을 반영한 현재 포인트입니다."
+            elif spec["series_id"] == "medium_term_model_outlook" and current_medium_score is not None:
+                latest_value = _round(_clip(current_medium_score), 4)
+                if points[-1]["date"] < current_date:
+                    points.append({
+                        "date": current_date,
+                        "value": latest_value,
+                        "point_type": "current_market_component_score",
+                        "source_note": "현재 실행시점의 시장 컴포넌트 종합점수를 반영한 포인트입니다.",
+                    })
+                else:
+                    points[-1]["value"] = latest_value
+                    points[-1]["point_type"] = "current_market_component_score"
+                    points[-1]["source_note"] = "현재 실행시점의 시장 컴포넌트 종합점수를 반영한 포인트입니다."
             else:
                 latest_value = points[-1]["value"]
         elif points and spec["series_id"] == "financial_environment" and current_environment_score is not None:
@@ -556,6 +664,11 @@ def _build_chart_series(
             points[-1]["value"] = latest_value
             points[-1]["point_type"] = "current_intraday_blend"
             points[-1]["source_note"] = "실행시점 장중 단기값을 반영한 현재 포인트입니다."
+        elif points and spec["series_id"] == "medium_term_model_outlook" and current_medium_score is not None:
+            latest_value = _round(_clip(current_medium_score), 4)
+            points[-1]["value"] = latest_value
+            points[-1]["point_type"] = "current_market_component_score"
+            points[-1]["source_note"] = "현재 실행시점의 시장 컴포넌트 종합점수를 반영한 포인트입니다."
         series.append({
             "series_id": spec["series_id"],
             "label": spec["label"],
@@ -705,8 +818,10 @@ def _build_composite_chart(
     asof: str,
     asof_date: str,
     current_environment_score: float | None,
+    current_medium_score: float | None,
     current_short_score: float | None,
 ) -> dict:
+    merged_rows = _merge_model_and_payload_rows(rows, asof_date=asof_date)
     return {
         "graph_type": "multi_line",
         "title": "시장 흐름 3축 추이",
@@ -720,9 +835,10 @@ def _build_composite_chart(
         "y_axis": {"type": "score", "label": "점수", "min": -3.0, "max": 3.0},
         "secondary_y_axis": {"type": "indexed_100", "label": "주가지수 기준선", "base": 100.0},
         "series": _build_chart_series(
-            rows,
+            merged_rows,
             current_date=asof_date,
             current_environment_score=current_environment_score,
+            current_medium_score=current_medium_score,
             current_short_score=current_short_score,
         ),
         "reference_indices": _reference_index_series(asof),
@@ -1030,6 +1146,7 @@ def build_market_state_composite(
         asof=features.asof,
         asof_date=features.asof_date,
         current_environment_score=(intraday_environment or {}).get("score"),
+        current_medium_score=scores.total_score,
         current_short_score=short_axis.get("score"),
     )
     indicators = _build_key_indicators(model_row, forecasts, features, short_axis, axes[0], axes[1])
