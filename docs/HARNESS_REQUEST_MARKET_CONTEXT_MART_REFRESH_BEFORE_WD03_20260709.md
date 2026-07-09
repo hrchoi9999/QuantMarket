@@ -28,7 +28,7 @@ WD03_MARKET_ANALYSIS 전에 아래 freshness check를 추가해 주세요.
 1. `D:\QuantMarket\service_platform\ai_training\market_context\current\market_model_input_daily_current.csv`의 max `asof_date` 확인
 2. max `asof_date`가 Harness target `asof`보다 과거이면 WD03를 바로 진행하지 말고 `blocked` 또는 `needs_market_context_mart_refresh`로 보고
 3. 사용자의 직접 지시 범위에 해당하는 경우에만 QuantMarket thread에 아래 작업을 요청
-   - `run_daily_market_ai_training_update.py --expected-asof <target_asof>` 또는 동일한 market context mart 갱신 단계
+   - `run_daily_market_ai_training_update.py --profile operational --expected-asof <target_asof>` 또는 동일한 운영용 market context mart 갱신 단계
    - 이후 market-analysis public payload 재생성
 4. 새 forecast/context 재생성이 금지된 좁은 WD03 요청이라면, WD03 보고서의 `known_issues`에 mart stale을 반드시 명시
 
@@ -37,6 +37,7 @@ WD03_MARKET_ANALYSIS 전에 아래 freshness check를 추가해 주세요.
 - WD01/WD02가 completed라도 `market_model_input_daily_current.csv` max date가 target asof와 다르면 WD03는 정상 completed로 처리하지 않는 것이 안전합니다.
 - 단, QuantMarket 코드에는 DB payload fallback이 추가되었으므로 웹 그래프 표시 자체는 방어됩니다.
 - 근본 해결은 Harness가 3축 입력 mart freshness를 WD03 선행조건으로 관리하는 것입니다.
+- `run_daily_market_ai_training_update.py` 기본 `full` profile에는 AI v1.1 연구/비교 단계가 포함되므로, WD02/WD03 자동 운영에서는 `--profile operational`만 사용해야 합니다.
 
 ## 확인 기준
 

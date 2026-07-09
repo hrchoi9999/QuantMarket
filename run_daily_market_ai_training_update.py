@@ -38,6 +38,32 @@ STEPS = [
     "compare_market_forecast_ai_v1_1_vs_calibration.py",
 ]
 
+OPERATIONAL_STEPS = [
+    "collect_treasury_yield_curve.py",
+    "collect_fred_global_data.py",
+    "collect_bls_global_data.py",
+    "collect_bea_global_data.py",
+    "collect_eia_global_data.py",
+    "collect_kiwoom_investor_flows.py",
+    "build_global_context_features.py",
+    "collect_yahoo_global_assets.py",
+    "build_external_market_context_features.py",
+    "build_ai_training_market_context_mart.py",
+    "build_domestic_flow_derivatives_daily.py",
+    "build_macro_event_calendar_daily.py",
+    "build_macro_surprise_daily.py",
+    "build_market_forecast_ai_calibration.py",
+    "build_market_model_input_mart.py",
+    "validate_market_forecast_daily.py",
+    "build_market_forecast_monitoring_mart.py",
+    "build_market_model_readiness.py",
+]
+
+RESEARCH_STEPS = [
+    ("build_market_forecast_ai_model_v1_1.py", "--model-mode", "fast"),
+    "compare_market_forecast_ai_v1_1_vs_calibration.py",
+]
+
 def _step_command(step: str | tuple[str, ...]) -> list[str]:
     if isinstance(step, tuple):
         script_name, *args = step
@@ -82,6 +108,12 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional Quant data-refresh asof_date. Handoff production_ready becomes false if primary forecast latest asof differs.",
     )
+    parser.add_argument(
+        "--profile",
+        choices=("full", "operational"),
+        default="full",
+        help="Use 'operational' for WD03 market-analysis prerequisites without AI v1.1 research/comparison steps.",
+    )
     return parser.parse_args()
 
 
@@ -89,7 +121,8 @@ def main() -> None:
     args = parse_args()
     generated_at = _now_kst()
     step_results = []
-    for step in STEPS:
+    steps = OPERATIONAL_STEPS if args.profile == "operational" else STEPS
+    for step in steps:
         step_results.append(_run_step(step))
     handoff = refresh_quant_model_handoff(generated_at=_now_kst(), expected_asof=args.expected_asof)
 
@@ -98,7 +131,9 @@ def main() -> None:
         "generated_at": generated_at,
         "completed_at": _now_kst(),
         "timezone": "Asia/Seoul",
+        "profile": args.profile,
         "steps": step_results,
+        "excluded_steps": [_step_name(step) for step in RESEARCH_STEPS] if args.profile == "operational" else [],
         "handoff": handoff,
     }
     report_dir = ROOT / "reports" / "market_ai_training_daily_update"
